@@ -333,13 +333,14 @@ class GraphVisualizer:
             with self.driver.session() as session:
                 if paper_id:
                     # Get citation network for specific paper (without APOC)
-                    result = session.run("""
-                        MATCH (start:Paper {paper_id: $paper_id})
+                    query = f"""
+                        MATCH (start:Paper {{paper_id: $paper_id}})
                         WITH start
-                        OPTIONAL MATCH (start)-[:CITES*1..$max_depth]-(related:Paper)
+                        OPTIONAL MATCH (start)-[:CITES*1..{max_depth}]-(related:Paper)
                         RETURN related.paper_id as paper_id, related.title as title, 
                                related.year as year, related.citations as citations
-                    """, {"paper_id": paper_id, "max_depth": max_depth})
+                    """
+                    result = session.run(query, {"paper_id": paper_id})
                 else:
                     # Get overall citation network
                     result = session.run("""
