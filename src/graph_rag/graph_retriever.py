@@ -132,14 +132,15 @@ class GraphRetriever:
         # Perform graph traversal to find related papers
         with self.driver.session() as session:
             # Multi-hop graph query (without APOC)
-            result = session.run("""
+            query = f"""
                 MATCH (start:Paper)
                 WHERE start.paper_id IN $paper_ids
                 WITH start
-                OPTIONAL MATCH (start)-[:CITES|AUTHORED_BY|USES_METHOD|HAS_KEYWORD|COLLABORATED_WITH*1..$max_hops]-(related)
+                OPTIONAL MATCH (start)-[:CITES|AUTHORED_BY|USES_METHOD|HAS_KEYWORD|COLLABORATED_WITH*1..{max_hops}]-(related)
                 RETURN DISTINCT related as node
                 LIMIT $limit
-            """, {"paper_ids": paper_ids, "max_hops": max_hops, "limit": limit})
+            """
+            result = session.run(query, {"paper_ids": paper_ids, "limit": limit})
             
             graph_papers = []
             for record in result:
