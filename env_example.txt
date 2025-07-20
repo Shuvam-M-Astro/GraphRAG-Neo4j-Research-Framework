@@ -1,0 +1,20 @@
+# Neo4j Database Configuration
+NEO4J_URI=bolt://localhost:7687
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=your_password
+
+# OpenAI Configuration
+OPENAI_API_KEY=your_openai_api_key
+OPENAI_MODEL=gpt-4
+
+# Vector Database Configuration
+VECTOR_DB_PATH=./data/vector_db
+
+# Data Sources Configuration
+ARXIV_MAX_RESULTS=1000
+PUBMED_MAX_RESULTS=1000
+SCHOLAR_MAX_RESULTS=1000
+
+# Application Configuration
+DEBUG=True
+LOG_LEVEL=INFO 
