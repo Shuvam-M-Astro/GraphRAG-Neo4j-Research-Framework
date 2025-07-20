@@ -126,43 +126,39 @@ class Neo4jDatabase:
                 {"keyword_id": "k5", "text": "transformer"}
             ]
 
-            # Create nodes
+            # Create nodes using MERGE to handle duplicates
             for paper in papers:
                 session.run("""
-                    CREATE (p:Paper {
-                        paper_id: $paper_id,
-                        title: $title,
-                        abstract: $abstract,
-                        year: $year,
-                        journal: $journal,
-                        citations: $citations
-                    })
+                    MERGE (p:Paper {paper_id: $paper_id})
+                    ON CREATE SET
+                        p.title = $title,
+                        p.abstract = $abstract,
+                        p.year = $year,
+                        p.journal = $journal,
+                        p.citations = $citations
                 """, paper)
 
             for author in authors:
                 session.run("""
-                    CREATE (a:Author {
-                        author_id: $author_id,
-                        name: $name,
-                        institution: $institution
-                    })
+                    MERGE (a:Author {author_id: $author_id})
+                    ON CREATE SET
+                        a.name = $name,
+                        a.institution = $institution
                 """, author)
 
             for method in methods:
                 session.run("""
-                    CREATE (m:Method {
-                        method_id: $method_id,
-                        name: $name,
-                        category: $category
-                    })
+                    MERGE (m:Method {method_id: $method_id})
+                    ON CREATE SET
+                        m.name = $name,
+                        m.category = $category
                 """, method)
 
             for keyword in keywords:
                 session.run("""
-                    CREATE (k:Keyword {
-                        keyword_id: $keyword_id,
-                        text: $text
-                    })
+                    MERGE (k:Keyword {keyword_id: $keyword_id})
+                    ON CREATE SET
+                        k.text = $text
                 """, keyword)
 
             # Create relationships
@@ -206,7 +202,7 @@ class Neo4jDatabase:
                     MATCH (source), (target)
                     WHERE source.paper_id = $source_id OR source.author_id = $source_id
                     AND target.paper_id = $target_id OR target.author_id = $target_id
-                    CREATE (source)-[r:{relationship}]->(target)
+                    MERGE (source)-[r:{relationship}]->(target)
                 """, {"source_id": source, "target_id": target})
 
             logger.info("Sample data created successfully")
