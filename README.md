@@ -2,6 +2,8 @@
 
 This project implements a Graph RAG (Retrieval-Augmented Generation) system specifically designed for scientific research and literature analysis. It connects research papers, authors, methodologies, and findings to enable sophisticated multi-hop reasoning and knowledge discovery.
 
+![GraphRAG Research Framework](images/1.png)
+
 ## Features
 
 - **GraphRAG Technology**: Combines graph traversal with vector similarity for multi-hop reasoning
@@ -29,24 +31,28 @@ This project implements a Graph RAG (Retrieval-Augmented Generation) system spec
                        └─────────────────┘
 ```
 
-## Setup Instructions
+## Quick Start with Docker
 
-### 1. Install Dependencies
+### 1. Start Neo4j Database with Docker
+```bash
+docker run -p 7474:7474 -p 7687:7687 \
+  -e NEO4J_AUTH=neo4j/password123 \
+  -e NEO4J_PLUGINS='["apoc"]' \
+  -e NEO4J_dbms_security_procedures_unrestricted=apoc.* \
+  neo4j:latest
+```
+
+### 2. Install Dependencies
 ```bash
 pip install -r requirements.txt
 ```
-
-### 2. Set up Neo4j Database
-- Install Neo4j Desktop or Neo4j Community Edition
-- Create a new database
-- Update `.env` file with your Neo4j credentials
 
 ### 3. Environment Configuration
 Create a `.env` file:
 ```env
 NEO4J_URI=bolt://localhost:7687
 NEO4J_USER=neo4j
-NEO4J_PASSWORD=your_password
+NEO4J_PASSWORD=password123
 OPENAI_API_KEY=your_openai_api_key
 ```
 
@@ -55,8 +61,89 @@ OPENAI_API_KEY=your_openai_api_key
 python src/database/init_database.py
 ```
 
-### 5. Run the Application
+### 5. Test the System
 ```bash
+python test_system.py
+```
+
+### 6. Run the Web Application
+```bash
+streamlit run src/app/main.py
+```
+
+## Viewing the Graph Database
+
+### Option 1: Neo4j Browser (Recommended)
+1. Open your browser and go to: `http://localhost:7474`
+2. Login with credentials: `neo4j` / `password123`
+3. Run these Cypher queries to explore the graph:
+
+```cypher
+// View all nodes and relationships
+MATCH (n)-[r]->(m) RETURN n, r, m LIMIT 50
+
+// Count total nodes
+MATCH (n) RETURN count(n) as total_nodes
+
+// View papers
+MATCH (p:Paper) RETURN p.paper_id, p.title, p.year
+
+// View authors
+MATCH (a:Author) RETURN a.name, a.institution
+
+// View relationships
+MATCH ()-[r]->() RETURN type(r), count(r) as count
+
+// Visualize the graph
+MATCH (n)-[r]->(m) RETURN n, r, m LIMIT 20
+```
+
+### Option 2: Python Scripts
+```bash
+# View database contents
+python view_database.py
+
+# Visualize graph (requires networkx, matplotlib)
+python visualize_graph.py
+```
+
+### Option 3: Streamlit Dashboard
+The web application includes interactive visualizations:
+- Graph visualization page
+- Research trends
+- Collaboration networks
+- Citation networks
+
+## Manual Setup (Alternative to Docker)
+
+### 1. Install Neo4j Desktop
+- Download from [Neo4j Desktop](https://neo4j.com/download/)
+- Create a new database
+- Start the database service
+
+### 2. Install Dependencies
+```bash
+pip install -r requirements.txt
+```
+
+### 3. Configure Environment
+Create a `.env` file with your Neo4j credentials:
+```env
+NEO4J_URI=bolt://localhost:7687
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=your_password
+OPENAI_API_KEY=your_openai_api_key
+```
+
+### 4. Initialize and Test
+```bash
+# Initialize database
+python src/database/init_database.py
+
+# Test the system
+python test_system.py
+
+# Run the application
 streamlit run src/app/main.py
 ```
 
