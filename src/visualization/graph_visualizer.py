@@ -332,16 +332,13 @@ class GraphVisualizer:
         try:
             with self.driver.session() as session:
                 if paper_id:
-                    # Get citation network for specific paper
+                    # Get citation network for specific paper (without APOC)
                     result = session.run("""
                         MATCH (start:Paper {paper_id: $paper_id})
-                        CALL apoc.path.subgraphNodes(start, {
-                            maxLevel: $max_depth,
-                            relationshipFilter: 'CITES'
-                        })
-                        YIELD node
-                        RETURN node.paper_id as paper_id, node.title as title, 
-                               node.year as year, node.citations as citations
+                        WITH start
+                        OPTIONAL MATCH (start)-[:CITES*1..$max_depth]-(related:Paper)
+                        RETURN related.paper_id as paper_id, related.title as title, 
+                               related.year as year, related.citations as citations
                     """, {"paper_id": paper_id, "max_depth": max_depth})
                 else:
                     # Get overall citation network
