@@ -21,4 +21,8 @@ transformers==4.36.2
 torch==2.1.2
 sentence-transformers==2.2.2
 faiss-cpu==1.7.4
-tiktoken==0.5.2 
+tiktoken==0.5.2
+# Validation and type checking
+pydantic==2.5.2
+mypy==1.8.0
+typeguard==4.0.0 
