@@ -12,19 +12,85 @@ from dotenv import load_dotenv
 from neo4j import GraphDatabase
 import time
 import json
+import re
+from functools import wraps
+
+# Import validation utilities
+from ..validation import (
+    validate_database_config, validate_paper_data, Paper, DatabaseConfig,
+    type_checked, validate_inputs
+)
+from ..types import (
+    PaperId, PaperMetadata, ValidationError, DatabaseError, 
+    is_paper_metadata, to_paper_metadata
+)
 
 load_dotenv()
 
 logger = logging.getLogger(__name__)
 
+def validate_ingestion_inputs(func):
+    """Decorator to validate ArXivIngestion method inputs."""
+    @wraps(func)
+    def wrapper(self, *args, **kwargs):
+        try:
+            # Validate query parameter if present
+            if 'query' in kwargs and kwargs['query']:
+                if not isinstance(kwargs['query'], str) or not kwargs['query'].strip():
+                    raise ValidationError("Query must be a non-empty string")
+            
+            # Validate max_results parameter
+            if 'max_results' in kwargs:
+                value = kwargs['max_results']
+                if not isinstance(value, int) or value <= 0 or value > 1000:
+                    raise ValidationError("max_results must be a positive integer <= 1000")
+            
+            # Validate paper data if present
+            if 'paper' in kwargs and kwargs['paper']:
+                if not isinstance(kwargs['paper'], dict):
+                    raise ValidationError("Paper must be a dictionary")
+            
+            return func(self, *args, **kwargs)
+        except Exception as e:
+            logger.error(f"Input validation failed for {func.__name__}: {e}")
+            raise ValidationError(f"Input validation failed: {e}")
+    return wrapper
+
 class ArXivIngestion:
     def __init__(self):
-        """Initialize ArXiv ingestion with Neo4j connection."""
-        self.uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
-        self.user = os.getenv("NEO4J_USER", "neo4j")
-        self.password = os.getenv("NEO4J_PASSWORD", "password")
-        self.driver = None
-        self.connect()
+        """
+        Initialize ArXiv ingestion with Neo4j connection.
+        
+        Raises:
+            ValidationError: If configuration is invalid
+            DatabaseError: If database connection fails
+        """
+        try:
+            # Validate database configuration
+            db_config = validate_database_config(
+                uri=os.getenv("NEO4J_URI", "bolt://localhost:7687"),
+                user=os.getenv("NEO4J_USER", "neo4j"),
+                password=os.getenv("NEO4J_PASSWORD", "password")
+            )
+            
+            self.uri = db_config.uri
+            self.user = db_config.user
+            self.password = db_config.password
+            self.driver = None
+            
+            # Performance tracking
+            self.ingestion_stats = {
+                "total_papers_processed": 0,
+                "successful_stores": 0,
+                "failed_stores": 0,
+                "total_processing_time": 0.0
+            }
+            
+            self.connect()
+            
+        except Exception as e:
+            logger.error(f"ArXivIngestion initialization failed: {e}")
+            raise
 
     def connect(self):
         """Establish connection to Neo4j database."""
@@ -40,17 +106,24 @@ class ArXivIngestion:
         if self.driver:
             self.driver.close()
 
-    def search_papers(self, query: str, max_results: int = 100) -> List[Dict]:
+    @validate_ingestion_inputs
+    @type_checked
+    def search_papers(self, query: str, max_results: int = 100) -> List[Dict[str, Any]]:
         """
         Search for papers on ArXiv.
         
         Args:
             query: Search query
-            max_results: Maximum number of results to fetch
+            max_results: Maximum number of results to fetch (1-1000)
             
         Returns:
             List of paper dictionaries
+            
+        Raises:
+            ValidationError: If input parameters are invalid
         """
+        start_time = time.time()
+        
         try:
             search = arxiv.Search(
                 query=query,
@@ -60,21 +133,38 @@ class ArXivIngestion:
             
             papers = []
             for result in search.results():
-                paper = {
-                    "paper_id": result.entry_id.split('/')[-1],
-                    "title": result.title,
-                    "abstract": result.summary,
-                    "authors": [author.name for author in result.authors],
-                    "published_date": result.published.date(),
-                    "updated_date": result.updated.date(),
-                    "categories": result.categories,
-                    "pdf_url": result.pdf_url,
-                    "journal_ref": result.journal_ref,
-                    "doi": result.doi
-                }
-                papers.append(paper)
+                try:
+                    # Validate and clean paper data
+                    paper = {
+                        "paper_id": result.entry_id.split('/')[-1],
+                        "title": result.title.strip() if result.title else "",
+                        "abstract": result.summary.strip() if result.summary else "",
+                        "authors": [author.name.strip() for author in result.authors if author.name.strip()],
+                        "published_date": result.published.date(),
+                        "updated_date": result.updated.date(),
+                        "categories": result.categories,
+                        "pdf_url": result.pdf_url,
+                        "journal_ref": result.journal_ref,
+                        "doi": result.doi
+                    }
+                    
+                    # Basic validation
+                    if not paper["title"] or not paper["abstract"]:
+                        logger.warning(f"Skipping paper with missing title or abstract: {paper['paper_id']}")
+                        continue
+                    
+                    if len(paper["abstract"]) < 10:
+                        logger.warning(f"Skipping paper with very short abstract: {paper['paper_id']}")
+                        continue
+                    
+                    papers.append(paper)
+                    
+                except Exception as e:
+                    logger.warning(f"Error processing ArXiv result: {e}")
+                    continue
                 
-            logger.info(f"Found {len(papers)} papers for query: {query}")
+            processing_time = time.time() - start_time
+            logger.info(f"Found {len(papers)} valid papers for query '{query}' in {processing_time:.2f}s")
             return papers
             
         except Exception as e:
@@ -141,7 +231,9 @@ class ArXivIngestion:
         
         return extracted_methods
 
-    def store_paper(self, paper: Dict) -> bool:
+    @validate_ingestion_inputs
+    @type_checked
+    def store_paper(self, paper: Dict[str, Any]) -> bool:
         """
         Store a paper in Neo4j database.
         
@@ -150,10 +242,45 @@ class ArXivIngestion:
             
         Returns:
             True if successful, False otherwise
+            
+        Raises:
+            ValidationError: If paper data is invalid
+            DatabaseError: If database operation fails
         """
+        start_time = time.time()
+        
         try:
+            # Validate paper data
+            if not isinstance(paper, dict):
+                raise ValidationError("Paper must be a dictionary")
+            
+            required_fields = ["paper_id", "title", "abstract", "published_date"]
+            for field in required_fields:
+                if field not in paper or not paper[field]:
+                    raise ValidationError(f"Missing required field: {field}")
+            
+            # Validate paper with Pydantic model
+            try:
+                paper_data = {
+                    "paper_id": paper["paper_id"],
+                    "title": paper["title"],
+                    "abstract": paper["abstract"],
+                    "year": paper["published_date"].year,
+                    "journal": paper.get("journal_ref"),
+                    "citations": 0,  # ArXiv papers start with 0 citations
+                    "authors": paper.get("authors", []),
+                    "keywords": [],
+                    "methods": []
+                }
+                
+                validated_paper = Paper(**paper_data)
+                
+            except Exception as e:
+                logger.error(f"Paper validation failed: {e}")
+                raise ValidationError(f"Invalid paper data: {e}")
+            
             with self.driver.session() as session:
-                # Create paper node
+                # Create paper node with validation
                 session.run("""
                     MERGE (p:Paper {paper_id: $paper_id})
                     SET p.title = $title,
@@ -163,70 +290,82 @@ class ArXivIngestion:
                         p.pdf_url = $pdf_url,
                         p.journal_ref = $journal_ref,
                         p.doi = $doi,
-                        p.year = $year
+                        p.year = $year,
+                        p.citations = $citations
                 """, {
-                    "paper_id": paper["paper_id"],
-                    "title": paper["title"],
-                    "abstract": paper["abstract"],
+                    "paper_id": validated_paper.paper_id,
+                    "title": validated_paper.title,
+                    "abstract": validated_paper.abstract,
                     "published_date": str(paper["published_date"]),
                     "updated_date": str(paper["updated_date"]),
-                    "pdf_url": paper["pdf_url"],
-                    "journal_ref": paper["journal_ref"] or "",
-                    "doi": paper["doi"] or "",
-                    "year": paper["published_date"].year
+                    "pdf_url": paper.get("pdf_url", ""),
+                    "journal_ref": paper.get("journal_ref", ""),
+                    "doi": paper.get("doi", ""),
+                    "year": validated_paper.year,
+                    "citations": validated_paper.citations
                 })
                 
                 # Create author nodes and relationships
-                for author_name in paper["authors"]:
-                    session.run("""
-                        MERGE (a:Author {name: $author_name})
-                        MERGE (p:Paper {paper_id: $paper_id})
-                        MERGE (p)-[:AUTHORED_BY]->(a)
-                    """, {
-                        "author_name": author_name,
-                        "paper_id": paper["paper_id"]
-                    })
+                for author_name in validated_paper.authors:
+                    if author_name.strip():
+                        session.run("""
+                            MERGE (a:Author {name: $author_name})
+                            MERGE (p:Paper {paper_id: $paper_id})
+                            MERGE (p)-[:AUTHORED_BY]->(a)
+                        """, {
+                            "author_name": author_name.strip(),
+                            "paper_id": validated_paper.paper_id
+                        })
                 
                 # Create keyword nodes and relationships
-                keywords = self.extract_keywords(paper["abstract"], paper["title"])
+                keywords = self.extract_keywords(validated_paper.abstract, validated_paper.title)
                 for keyword in keywords:
-                    session.run("""
-                        MERGE (k:Keyword {text: $keyword})
-                        MERGE (p:Paper {paper_id: $paper_id})
-                        MERGE (p)-[:HAS_KEYWORD]->(k)
-                    """, {
-                        "keyword": keyword,
-                        "paper_id": paper["paper_id"]
-                    })
+                    if keyword.strip():
+                        session.run("""
+                            MERGE (k:Keyword {text: $keyword})
+                            MERGE (p:Paper {paper_id: $paper_id})
+                            MERGE (p)-[:HAS_KEYWORD]->(k)
+                        """, {
+                            "keyword": keyword.strip().lower(),
+                            "paper_id": validated_paper.paper_id
+                        })
                 
-                # Create methodology nodes and relationships
-                methods = self.extract_methodologies(paper["abstract"], paper["title"])
+                # Create method nodes and relationships
+                methods = self.extract_methodologies(validated_paper.abstract, validated_paper.title)
                 for method in methods:
-                    session.run("""
-                        MERGE (m:Method {name: $method})
-                        MERGE (p:Paper {paper_id: $paper_id})
-                        MERGE (p)-[:USES_METHOD]->(m)
-                    """, {
-                        "method": method,
-                        "paper_id": paper["paper_id"]
-                    })
+                    if method.strip():
+                        session.run("""
+                            MERGE (m:Method {name: $method})
+                            MERGE (p:Paper {paper_id: $paper_id})
+                            MERGE (p)-[:USES_METHOD]->(m)
+                        """, {
+                            "method": method.strip(),
+                            "paper_id": validated_paper.paper_id
+                        })
                 
                 # Create category nodes and relationships
-                for category in paper["categories"]:
-                    session.run("""
-                        MERGE (c:Category {name: $category})
-                        MERGE (p:Paper {paper_id: $paper_id})
-                        MERGE (p)-[:BELONGS_TO]->(c)
-                    """, {
-                        "category": category,
-                        "paper_id": paper["paper_id"]
-                    })
+                for category in paper.get("categories", []):
+                    if category.strip():
+                        session.run("""
+                            MERGE (c:Category {name: $category})
+                            MERGE (p:Paper {paper_id: $paper_id})
+                            MERGE (p)-[:BELONGS_TO]->(c)
+                        """, {
+                            "category": category.strip(),
+                            "paper_id": validated_paper.paper_id
+                        })
                 
-                logger.info(f"Successfully stored paper: {paper['paper_id']}")
+                # Update statistics
+                processing_time = time.time() - start_time
+                self.ingestion_stats["successful_stores"] += 1
+                self.ingestion_stats["total_processing_time"] += processing_time
+                
+                logger.info(f"Successfully stored paper {validated_paper.paper_id} in {processing_time:.2f}s")
                 return True
                 
         except Exception as e:
-            logger.error(f"Error storing paper {paper['paper_id']}: {e}")
+            self.ingestion_stats["failed_stores"] += 1
+            logger.error(f"Error storing paper {paper.get('paper_id', 'unknown')}: {e}")
             return False
 
     def ingest_papers(self, queries: List[str], max_results_per_query: int = 50) -> Dict[str, Any]:
