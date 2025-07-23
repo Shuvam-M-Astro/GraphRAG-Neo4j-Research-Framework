@@ -1,144 +1,99 @@
 """
-Graph Visualization for Scientific Research Knowledge Graph
-Creates interactive visualizations of research networks and relationships.
+Advanced GraphRAG Visualization Components
+Provides interactive visualizations for graph-based research analysis.
 """
 
-import os
-import logging
-from typing import List, Dict, Any, Optional
-from dotenv import load_dotenv
-from neo4j import GraphDatabase
-import networkx as nx
+import streamlit as st
 import plotly.graph_objects as go
 import plotly.express as px
+import networkx as nx
 import pandas as pd
+import numpy as np
+from typing import List, Dict, Any, Optional, Tuple
 import json
 
-load_dotenv()
-
-logger = logging.getLogger(__name__)
-
-class GraphVisualizer:
+class AdvancedGraphVisualizer:
     def __init__(self):
-        """Initialize graph visualizer with Neo4j connection."""
-        self.uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
-        self.user = os.getenv("NEO4J_USER", "neo4j")
-        self.password = os.getenv("NEO4J_PASSWORD", "password")
-        self.driver = None
-        self.connect()
-
-    def connect(self):
-        """Establish connection to Neo4j database."""
-        try:
-            self.driver = GraphDatabase.driver(self.uri, auth=(self.user, self.password))
-            logger.info("Successfully connected to Neo4j database")
-        except Exception as e:
-            logger.error(f"Failed to connect to Neo4j: {e}")
-            raise
-
-    def close(self):
-        """Close the database connection."""
-        if self.driver:
-            self.driver.close()
-
-    def get_collaboration_network(self, author_name: str = None, max_authors: int = 50) -> Dict[str, Any]:
+        """Initialize the advanced graph visualizer."""
+        self.color_scheme = {
+            'Paper': '#1f77b4',
+            'Author': '#ff7f0e', 
+            'Method': '#2ca02c',
+            'Keyword': '#d62728',
+            'Citation': '#9467bd',
+            'Collaboration': '#8c564b',
+            'MethodUsage': '#e377c2'
+        }
+    
+    def visualize_path_analysis(self, path_analysis: Dict[str, Any]) -> go.Figure:
         """
-        Get collaboration network data.
+        Create interactive visualization for path analysis results.
         
         Args:
-            author_name: Specific author to focus on (optional)
-            max_authors: Maximum number of authors to include
+            path_analysis: Results from path analysis
             
         Returns:
-            Network data for visualization
+            Plotly figure showing path analysis
         """
-        try:
-            with self.driver.session() as session:
-                if author_name:
-                    # Get collaboration network for specific author
-                    result = session.run("""
-                        MATCH (a:Author {name: $author_name})-[:COLLABORATED_WITH]-(collaborator:Author)
-                        RETURN a.name as author1, collaborator.name as author2
-                        LIMIT $max_authors
-                    """, {"author_name": author_name, "max_authors": max_authors})
-                else:
-                    # Get overall collaboration network
-                    result = session.run("""
-                        MATCH (a1:Author)-[:COLLABORATED_WITH]-(a2:Author)
-                        RETURN a1.name as author1, a2.name as author2
-                        LIMIT $max_authors
-                    """, {"max_authors": max_authors})
-                
-                edges = []
-                nodes = set()
-                
-                for record in result:
-                    author1 = record["author1"]
-                    author2 = record["author2"]
-                    edges.append({"source": author1, "target": author2})
-                    nodes.add(author1)
-                    nodes.add(author2)
-                
-                return {
-                    "nodes": [{"id": node, "label": node} for node in nodes],
-                    "edges": edges
-                }
-                
-        except Exception as e:
-            logger.error(f"Error getting collaboration network: {e}")
-            return {"nodes": [], "edges": []}
-
-    def create_collaboration_network_plot(self, network_data: Dict[str, Any]) -> go.Figure:
-        """
-        Create an interactive collaboration network visualization.
+        if not path_analysis or "paths" not in path_analysis:
+            return self._create_empty_figure("No path data available")
         
-        Args:
-            network_data: Network data from get_collaboration_network
+        # Create network graph
+        G = nx.DiGraph()
+        
+        # Add nodes and edges from paths
+        for path_data in path_analysis["paths"]:
+            nodes = path_data["nodes"]
+            relationships = path_data["relationships"]
             
-        Returns:
-            Plotly figure object
-        """
-        if not network_data["nodes"]:
-            return go.Figure()
+            # Add nodes
+            for i, node in enumerate(nodes):
+                node_id = self._get_node_id(node)
+                node_type = self._get_node_type(node)
+                G.add_node(node_id, 
+                          type=node_type,
+                          label=self._get_node_label(node),
+                          color=self.color_scheme.get(node_type, '#666666'))
+            
+            # Add edges
+            for i, rel in enumerate(relationships):
+                if i < len(nodes) - 1:
+                    source = self._get_node_id(nodes[i])
+                    target = self._get_node_id(nodes[i + 1])
+                    G.add_edge(source, target, 
+                              type=type(rel).__name__,
+                              weight=path_data["strength"])
         
-        # Create NetworkX graph
-        G = nx.Graph()
-        
-        # Add nodes
-        for node in network_data["nodes"]:
-            G.add_node(node["id"])
-        
-        # Add edges
-        for edge in network_data["edges"]:
-            G.add_edge(edge["source"], edge["target"])
-        
-        # Calculate layout
-        pos = nx.spring_layout(G, k=1, iterations=50)
+        # Create layout
+        pos = nx.spring_layout(G, k=3, iterations=50)
         
         # Create edge traces
-        edge_x = []
-        edge_y = []
-        for edge in G.edges():
+        edge_traces = []
+        for edge in G.edges(data=True):
             x0, y0 = pos[edge[0]]
             x1, y1 = pos[edge[1]]
-            edge_x.extend([x0, x1, None])
-            edge_y.extend([y0, y1, None])
+            
+            edge_trace = go.Scatter(
+                x=[x0, x1, None], y=[y0, y1, None],
+                line=dict(width=2, color='#888'),
+                hoverinfo='none',
+                mode='lines',
+                showlegend=False
+            )
+            edge_traces.append(edge_trace)
         
-        edge_trace = go.Scatter(
-            x=edge_x, y=edge_y,
-            line=dict(width=0.5, color='#888'),
-            hoverinfo='none',
-            mode='lines')
-        
-        # Create node traces
+        # Create node trace
         node_x = []
         node_y = []
         node_text = []
-        for node in G.nodes():
-            x, y = pos[node]
+        node_colors = []
+        
+        for node in G.nodes(data=True):
+            x, y = pos[node[0]]
             node_x.append(x)
             node_y.append(y)
-            node_text.append(node)
+            node_text.append(node[1]['label'])
+            node_colors.append(node[1]['color'])
         
         node_trace = go.Scatter(
             x=node_x, y=node_y,
@@ -147,346 +102,387 @@ class GraphVisualizer:
             text=node_text,
             textposition="top center",
             marker=dict(
-                showscale=True,
-                colorscale='YlGnBu',
                 size=20,
-                color=[],
-                line_width=2))
-        
-        # Color nodes by degree
-        node_adjacencies = []
-        for node in G.nodes():
-            node_adjacencies.append(len(list(G.neighbors(node))))
-        node_trace.marker.color = node_adjacencies
+                color=node_colors,
+                line=dict(width=2, color='white')
+            ),
+            showlegend=False
+        )
         
         # Create figure
-        fig = go.Figure(data=[edge_trace, node_trace],
+        fig = go.Figure(data=edge_traces + [node_trace],
                        layout=go.Layout(
-                           title='Collaboration Network',
+                           title=f"Path Analysis: {path_analysis.get('source_entity', '')} → {path_analysis.get('target_entity', '')}",
                            showlegend=False,
                            hovermode='closest',
                            margin=dict(b=20,l=5,r=5,t=40),
                            xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                           yaxis=dict(showgrid=False, zeroline=False, showticklabels=False))
-                       )
+                           yaxis=dict(showgrid=False, zeroline=False, showticklabels=False)
+                       ))
         
         return fig
-
-    def get_methodology_evolution_data(self, method_name: str) -> Dict[str, Any]:
+    
+    def visualize_influence_propagation(self, propagation_data: Dict[str, Any]) -> go.Figure:
         """
-        Get methodology evolution data over time.
+        Create visualization for influence propagation analysis.
         
         Args:
-            method_name: Name of the methodology
+            propagation_data: Results from influence propagation analysis
             
         Returns:
-            Evolution data for visualization
+            Plotly figure showing influence propagation
         """
-        try:
-            with self.driver.session() as session:
-                result = session.run("""
-                    MATCH (p:Paper)-[:USES_METHOD]->(m:Method {name: $method_name})
-                    RETURN p.year as year, count(p) as paper_count
-                    ORDER BY p.year
-                """, {"method_name": method_name})
-                
-                years = []
-                counts = []
-                
-                for record in result:
-                    years.append(record["year"])
-                    counts.append(record["paper_count"])
-                
-                return {
-                    "method": method_name,
-                    "years": years,
-                    "counts": counts
-                }
-                
-        except Exception as e:
-            logger.error(f"Error getting methodology evolution data: {e}")
-            return {"method": method_name, "years": [], "counts": []}
-
-    def create_methodology_evolution_plot(self, evolution_data: Dict[str, Any]) -> go.Figure:
-        """
-        Create methodology evolution timeline plot.
+        if not propagation_data or "propagation_paths" not in propagation_data:
+            return self._create_empty_figure("No propagation data available")
         
-        Args:
-            evolution_data: Evolution data from get_methodology_evolution_data
+        # Create network graph
+        G = nx.DiGraph()
+        
+        # Add nodes and edges from propagation paths
+        for path_data in propagation_data["propagation_paths"]:
+            entity = path_data["entity"]
+            score = path_data["score"]
+            step = path_data["step"]
             
-        Returns:
-            Plotly figure object
-        """
-        if not evolution_data["years"]:
-            return go.Figure()
+            node_id = self._get_node_id(entity)
+            node_type = self._get_node_type(entity)
+            G.add_node(node_id,
+                      type=node_type,
+                      label=self._get_node_label(entity),
+                      score=score,
+                      step=step,
+                      color=self.color_scheme.get(node_type, '#666666'))
         
-        fig = go.Figure()
+        # Add edges based on propagation steps
+        for i, path_data in enumerate(propagation_data["propagation_paths"]):
+            if i > 0:
+                prev_entity = propagation_data["propagation_paths"][i-1]["entity"]
+                curr_entity = path_data["entity"]
+                
+                prev_id = self._get_node_id(prev_entity)
+                curr_id = self._get_node_id(curr_entity)
+                
+                if prev_id != curr_id:
+                    G.add_edge(prev_id, curr_id, 
+                              weight=path_data["score"],
+                              step=path_data["step"])
         
-        fig.add_trace(go.Scatter(
-            x=evolution_data["years"],
-            y=evolution_data["counts"],
-            mode='lines+markers',
-            name=evolution_data["method"],
-            line=dict(width=3),
-            marker=dict(size=8)
-        ))
+        # Create layout with step-based positioning
+        pos = {}
+        for node, data in G.nodes(data=True):
+            step = data.get('step', 0)
+            pos[node] = (step, np.random.uniform(-1, 1))
         
-        fig.update_layout(
-            title=f'Evolution of {evolution_data["method"]} Over Time',
-            xaxis_title='Year',
-            yaxis_title='Number of Papers',
-            height=400
-        )
-        
-        return fig
-
-    def get_research_trends_data(self, topic: str = None) -> Dict[str, Any]:
-        """
-        Get research trends data.
-        
-        Args:
-            topic: Optional topic filter
+        # Create edge traces
+        edge_traces = []
+        for edge in G.edges(data=True):
+            x0, y0 = pos[edge[0]]
+            x1, y1 = pos[edge[1]]
             
-        Returns:
-            Trends data for visualization
-        """
-        try:
-            with self.driver.session() as session:
-                if topic:
-                    # Get trends for specific topic
-                    result = session.run("""
-                        MATCH (p:Paper)-[:HAS_KEYWORD]->(k:Keyword)
-                        WHERE toLower(k.text) CONTAINS toLower($topic)
-                        RETURN p.year as year, count(p) as paper_count
-                        ORDER BY p.year
-                    """, {"topic": topic})
-                else:
-                    # Get overall trends
-                    result = session.run("""
-                        MATCH (p:Paper)
-                        RETURN p.year as year, count(p) as paper_count
-                        ORDER BY p.year
-                    """)
-                
-                years = []
-                counts = []
-                
-                for record in result:
-                    years.append(record["year"])
-                    counts.append(record["paper_count"])
-                
-                return {
-                    "topic": topic or "All Research",
-                    "years": years,
-                    "counts": counts
-                }
-                
-        except Exception as e:
-            logger.error(f"Error getting research trends data: {e}")
-            return {"topic": topic or "All Research", "years": [], "counts": []}
-
-    def create_research_trends_plot(self, trends_data: Dict[str, Any]) -> go.Figure:
-        """
-        Create research trends visualization.
+            edge_trace = go.Scatter(
+                x=[x0, x1, None], y=[y0, y1, None],
+                line=dict(width=edge[2]['weight'] * 5, color='#888'),
+                hoverinfo='none',
+                mode='lines',
+                showlegend=False
+            )
+            edge_traces.append(edge_trace)
         
-        Args:
-            trends_data: Trends data from get_research_trends_data
-            
-        Returns:
-            Plotly figure object
-        """
-        if not trends_data["years"]:
-            return go.Figure()
+        # Create node trace
+        node_x = []
+        node_y = []
+        node_text = []
+        node_colors = []
+        node_sizes = []
         
-        fig = go.Figure()
+        for node in G.nodes(data=True):
+            x, y = pos[node[0]]
+            node_x.append(x)
+            node_y.append(y)
+            node_text.append(f"{node[1]['label']}<br>Score: {node[1]['score']:.3f}<br>Step: {node[1]['step']}")
+            node_colors.append(node[1]['color'])
+            node_sizes.append(node[1]['score'] * 30 + 10)
         
-        fig.add_trace(go.Scatter(
-            x=trends_data["years"],
-            y=trends_data["counts"],
-            mode='lines+markers',
-            name=trends_data["topic"],
-            line=dict(width=3, color='#1f77b4'),
-            marker=dict(size=8)
-        ))
-        
-        fig.update_layout(
-            title=f'Research Trends: {trends_data["topic"]}',
-            xaxis_title='Year',
-            yaxis_title='Number of Papers',
-            height=400
-        )
-        
-        return fig
-
-    def get_citation_network_data(self, paper_id: str = None, max_depth: int = 2) -> Dict[str, Any]:
-        """
-        Get citation network data.
-        
-        Args:
-            paper_id: Specific paper to focus on (optional)
-            max_depth: Maximum depth for citation traversal
-            
-        Returns:
-            Citation network data
-        """
-        try:
-            with self.driver.session() as session:
-                if paper_id:
-                    # Get citation network for specific paper (without APOC)
-                    query = f"""
-                        MATCH (start:Paper {{paper_id: $paper_id}})
-                        WITH start
-                        OPTIONAL MATCH (start)-[:CITES*1..{max_depth}]-(related:Paper)
-                        RETURN related.paper_id as paper_id, related.title as title, 
-                               related.year as year, related.citations as citations
-                    """
-                    result = session.run(query, {"paper_id": paper_id})
-                else:
-                    # Get overall citation network
-                    result = session.run("""
-                        MATCH (p:Paper)
-                        RETURN p.paper_id as paper_id, p.title as title, 
-                               p.year as year, p.citations as citations
-                        ORDER BY p.citations DESC
-                        LIMIT 50
-                    """)
-                
-                papers = []
-                for record in result:
-                    papers.append({
-                        "paper_id": record["paper_id"],
-                        "title": record["title"],
-                        "year": record["year"],
-                        "citations": record["citations"] or 0
-                    })
-                
-                return {"papers": papers}
-                
-        except Exception as e:
-            logger.error(f"Error getting citation network data: {e}")
-            return {"papers": []}
-
-    def create_citation_network_plot(self, citation_data: Dict[str, Any]) -> go.Figure:
-        """
-        Create citation network visualization.
-        
-        Args:
-            citation_data: Citation data from get_citation_network_data
-            
-        Returns:
-            Plotly figure object
-        """
-        if not citation_data["papers"]:
-            return go.Figure()
-        
-        papers = citation_data["papers"]
-        
-        # Create scatter plot
-        fig = go.Figure()
-        
-        x = [paper["year"] for paper in papers]
-        y = [paper["citations"] for paper in papers]
-        text = [paper["title"][:50] + "..." for paper in papers]
-        
-        fig.add_trace(go.Scatter(
-            x=x,
-            y=y,
+        node_trace = go.Scatter(
+            x=node_x, y=node_y,
             mode='markers+text',
-            text=text,
+            hoverinfo='text',
+            text=[node[1]['label'] for node in G.nodes(data=True)],
             textposition="top center",
             marker=dict(
-                size=[min(20 + paper["citations"] * 0.5, 50) for paper in papers],
-                color=y,
-                colorscale='Viridis',
-                showscale=True,
-                colorbar=dict(title="Citations")
+                size=node_sizes,
+                color=node_colors,
+                line=dict(width=2, color='white')
             ),
-            hovertemplate="<b>%{text}</b><br>Year: %{x}<br>Citations: %{y}<extra></extra>"
+            showlegend=False
+        )
+        
+        # Create figure
+        fig = go.Figure(data=edge_traces + [node_trace],
+                       layout=go.Layout(
+                           title="Influence Propagation Analysis",
+                           showlegend=False,
+                           hovermode='closest',
+                           margin=dict(b=20,l=5,r=5,t=40),
+                           xaxis=dict(title="Propagation Step", showgrid=True),
+                           yaxis=dict(showgrid=False, zeroline=False, showticklabels=False)
+                       ))
+        
+        return fig
+    
+    def visualize_temporal_evolution(self, temporal_data: Dict[str, Any]) -> go.Figure:
+        """
+        Create visualization for temporal evolution analysis.
+        
+        Args:
+            temporal_data: Results from temporal analysis
+            
+        Returns:
+            Plotly figure showing temporal evolution
+        """
+        if not temporal_data or "temporal_evolution" not in temporal_data:
+            return self._create_empty_figure("No temporal data available")
+        
+        evolution = temporal_data["temporal_evolution"]
+        
+        # Prepare data for plotting
+        years = []
+        total_flows = []
+        avg_flows = []
+        flow_counts = []
+        
+        for year, metrics in evolution.items():
+            years.append(year)
+            total_flows.append(metrics.get('total_flow', 0))
+            avg_flows.append(metrics.get('avg_flow', 0))
+            flow_counts.append(metrics.get('flow_count', 0))
+        
+        # Create subplots
+        fig = go.Figure()
+        
+        # Add total flow line
+        fig.add_trace(go.Scatter(
+            x=years, y=total_flows,
+            mode='lines+markers',
+            name='Total Knowledge Flow',
+            line=dict(color='#1f77b4', width=3),
+            marker=dict(size=8)
         ))
         
+        # Add average flow line
+        fig.add_trace(go.Scatter(
+            x=years, y=avg_flows,
+            mode='lines+markers',
+            name='Average Flow Strength',
+            line=dict(color='#ff7f0e', width=3),
+            marker=dict(size=8),
+            yaxis='y2'
+        ))
+        
+        # Add flow count bars
+        fig.add_trace(go.Bar(
+            x=years, y=flow_counts,
+            name='Number of Flows',
+            marker_color='#2ca02c',
+            opacity=0.7,
+            yaxis='y3'
+        ))
+        
+        # Update layout
         fig.update_layout(
-            title="Paper Citation Network",
-            xaxis_title="Publication Year",
-            yaxis_title="Number of Citations",
-            height=500
+            title="Temporal Evolution of Knowledge Flow",
+            xaxis=dict(title="Year"),
+            yaxis=dict(title="Total Flow", side="left"),
+            yaxis2=dict(title="Average Flow", side="right", overlaying="y"),
+            yaxis3=dict(title="Flow Count", side="right", position=0.95),
+            hovermode='x unified',
+            legend=dict(x=0.02, y=0.98)
         )
         
         return fig
-
-    def get_keyword_cloud_data(self, topic: str = None) -> Dict[str, Any]:
+    
+    def visualize_cross_domain_analysis(self, cross_domain_data: Dict[str, Any]) -> go.Figure:
         """
-        Get keyword frequency data for word cloud.
+        Create visualization for cross-domain analysis.
         
         Args:
-            topic: Optional topic filter
+            cross_domain_data: Results from cross-domain analysis
             
         Returns:
-            Keyword frequency data
+            Plotly figure showing cross-domain connections
         """
-        try:
-            with self.driver.session() as session:
-                if topic:
-                    # Get keywords for specific topic
-                    result = session.run("""
-                        MATCH (p:Paper)-[:HAS_KEYWORD]->(k:Keyword)
-                        WHERE toLower(k.text) CONTAINS toLower($topic)
-                        RETURN k.text as keyword, count(p) as frequency
-                        ORDER BY frequency DESC
-                        LIMIT 50
-                    """, {"topic": topic})
-                else:
-                    # Get overall keyword frequencies
-                    result = session.run("""
-                        MATCH (p:Paper)-[:HAS_KEYWORD]->(k:Keyword)
-                        RETURN k.text as keyword, count(p) as frequency
-                        ORDER BY frequency DESC
-                        LIMIT 50
-                    """)
-                
-                keywords = []
-                frequencies = []
-                
-                for record in result:
-                    keywords.append(record["keyword"])
-                    frequencies.append(record["frequency"])
-                
-                return {
-                    "keywords": keywords,
-                    "frequencies": frequencies
-                }
-                
-        except Exception as e:
-            logger.error(f"Error getting keyword cloud data: {e}")
-            return {"keywords": [], "frequencies": []}
-
-    def create_keyword_cloud_plot(self, keyword_data: Dict[str, Any]) -> go.Figure:
+        if not cross_domain_data or "bridging_concepts" not in cross_domain_data:
+            return self._create_empty_figure("No cross-domain data available")
+        
+        bridging_concepts = cross_domain_data["bridging_concepts"]
+        
+        # Create sankey diagram for cross-domain flow
+        if "concept_overlap" in bridging_concepts:
+            # Prepare sankey data
+            source = []
+            target = []
+            value = []
+            labels = []
+            
+            for domain_pair, overlap in bridging_concepts["concept_overlap"].items():
+                domains = domain_pair.split('_x_')
+                if len(domains) == 2:
+                    domain1, domain2 = domains
+                    
+                    # Add shared methods
+                    if overlap["shared_methods"]:
+                        source.append(domain1)
+                        target.append(domain2)
+                        value.append(len(overlap["shared_methods"]))
+                        labels.extend([domain1, domain2])
+                    
+                    # Add shared keywords
+                    if overlap["shared_keywords"]:
+                        source.append(domain1)
+                        target.append(domain2)
+                        value.append(len(overlap["shared_keywords"]))
+                        labels.extend([domain1, domain2])
+            
+            # Remove duplicates from labels
+            unique_labels = list(dict.fromkeys(labels))
+            
+            # Create sankey diagram
+            fig = go.Figure(data=[go.Sankey(
+                node=dict(
+                    pad=15,
+                    thickness=20,
+                    line=dict(color="black", width=0.5),
+                    label=unique_labels,
+                    color="blue"
+                ),
+                link=dict(
+                    source=[unique_labels.index(s) for s in source],
+                    target=[unique_labels.index(t) for t in target],
+                    value=value
+                )
+            )])
+            
+            fig.update_layout(
+                title="Cross-Domain Knowledge Flow",
+                font_size=10
+            )
+            
+            return fig
+        
+        return self._create_empty_figure("No cross-domain connections found")
+    
+    def visualize_research_trends(self, trend_data: Dict[str, Any]) -> go.Figure:
         """
-        Create keyword frequency visualization.
+        Create visualization for research trend analysis.
         
         Args:
-            keyword_data: Keyword data from get_keyword_cloud_data
+            trend_data: Results from research trend analysis
             
         Returns:
-            Plotly figure object
+            Plotly figure showing research trends
         """
-        if not keyword_data["keywords"]:
-            return go.Figure()
+        if not trend_data or "trend_analysis" not in trend_data:
+            return self._create_empty_figure("No trend data available")
         
-        # Create bar chart for keyword frequencies
+        trend_analysis = trend_data["trend_analysis"]
+        
+        # Create multiple subplots
         fig = go.Figure()
         
-        fig.add_trace(go.Bar(
-            x=keyword_data["keywords"],
-            y=keyword_data["frequencies"],
-            marker_color='#1f77b4'
-        ))
+        # Add temporal results if available
+        if "temporal_results" in trend_analysis:
+            temporal_results = trend_analysis["temporal_results"]
+            
+            # Extract years and scores
+            years = [paper.get("year", 0) for paper in temporal_results]
+            scores = [paper.get("hybrid_score", 0) for paper in temporal_results]
+            
+            fig.add_trace(go.Scatter(
+                x=years, y=scores,
+                mode='markers',
+                name='Research Relevance',
+                marker=dict(
+                    size=10,
+                    color=scores,
+                    colorscale='Viridis',
+                    showscale=True
+                )
+            ))
+        
+        # Add methodology evolution if available
+        if "methodology_evolution" in trend_analysis:
+            method_evolution = trend_analysis["methodology_evolution"]
+            if "evolution" in method_evolution:
+                evolution_data = method_evolution["evolution"]
+                
+                method_years = [item.get("year", 0) for item in evolution_data]
+                method_counts = [len(item.get("keywords", [])) for item in evolution_data]
+                
+                fig.add_trace(go.Scatter(
+                    x=method_years, y=method_counts,
+                    mode='lines+markers',
+                    name='Methodology Evolution',
+                    line=dict(color='red', width=2),
+                    yaxis='y2'
+                ))
         
         fig.update_layout(
-            title="Keyword Frequency Distribution",
-            xaxis_title="Keywords",
-            yaxis_title="Frequency",
-            height=500,
-            xaxis_tickangle=-45
+            title="Research Trends Analysis",
+            xaxis=dict(title="Year"),
+            yaxis=dict(title="Relevance Score", side="left"),
+            yaxis2=dict(title="Methodology Count", side="right", overlaying="y"),
+            hovermode='x unified'
         )
         
+        return fig
+    
+    def _get_node_id(self, node: Dict) -> str:
+        """Extract unique node ID from node data."""
+        if "paper_id" in node:
+            return f"paper_{node['paper_id']}"
+        elif "name" in node:
+            return f"entity_{node['name']}"
+        elif "text" in node:
+            return f"keyword_{node['text']}"
+        else:
+            return f"unknown_{id(node)}"
+    
+    def _get_node_type(self, node: Dict) -> str:
+        """Extract node type from node data."""
+        if "paper_id" in node:
+            return "Paper"
+        elif "name" in node and "institution" in node:
+            return "Author"
+        elif "name" in node and "description" in node:
+            return "Method"
+        elif "text" in node:
+            return "Keyword"
+        else:
+            return "Unknown"
+    
+    def _get_node_label(self, node: Dict) -> str:
+        """Extract display label from node data."""
+        if "title" in node:
+            return node["title"][:50] + "..." if len(node["title"]) > 50 else node["title"]
+        elif "name" in node:
+            return node["name"]
+        elif "text" in node:
+            return node["text"]
+        else:
+            return "Unknown"
+    
+    def _create_empty_figure(self, message: str) -> go.Figure:
+        """Create an empty figure with a message."""
+        fig = go.Figure()
+        fig.add_annotation(
+            text=message,
+            xref="paper", yref="paper",
+            x=0.5, y=0.5,
+            showarrow=False,
+            font=dict(size=16)
+        )
+        fig.update_layout(
+            xaxis=dict(showgrid=False, showticklabels=False, zeroline=False),
+            yaxis=dict(showgrid=False, showticklabels=False, zeroline=False)
+        )
         return fig 
