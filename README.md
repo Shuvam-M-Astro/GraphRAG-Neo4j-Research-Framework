@@ -63,7 +63,7 @@ python src/database/init_database.py
 
 ### 5. Test the System
 ```bash
-python test_system.py
+python test_suite.py
 ```
 
 ### 6. Run the Web Application
