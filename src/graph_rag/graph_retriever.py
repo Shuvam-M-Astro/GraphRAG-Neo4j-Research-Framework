@@ -6,6 +6,7 @@ Combines graph traversal with vector similarity search for multi-hop reasoning.
 import os
 import logging
 from typing import List, Dict, Any, Optional, Tuple
+from datetime import datetime
 from dotenv import load_dotenv
 from neo4j import GraphDatabase
 from sentence_transformers import SentenceTransformer
@@ -31,34 +32,7 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-def validate_retriever_inputs(func):
-    """Decorator to validate GraphRetriever method inputs."""
-    @wraps(func)
-    def wrapper(self, *args, **kwargs):
-        try:
-            # Validate query parameter if present
-            if 'query' in kwargs and kwargs['query']:
-                if not isinstance(kwargs['query'], str) or not kwargs['query'].strip():
-                    raise ValidationError("Query must be a non-empty string")
-            
-            # Validate numeric parameters
-            for param in ['max_hops', 'limit', 'max_results']:
-                if param in kwargs:
-                    value = kwargs[param]
-                    if not isinstance(value, int) or value <= 0:
-                        raise ValidationError(f"{param} must be a positive integer")
-            
-            # Validate alpha parameter for hybrid search
-            if 'alpha' in kwargs:
-                alpha = kwargs['alpha']
-                if not isinstance(alpha, (int, float)) or not 0 <= alpha <= 1:
-                    raise ValidationError("Alpha must be a number between 0 and 1")
-            
-            return func(self, *args, **kwargs)
-        except Exception as e:
-            logger.error(f"Input validation failed for {func.__name__}: {e}")
-            raise ValidationError(f"Input validation failed: {e}")
-    return wrapper
+# Removed redundant validation decorator - using Pydantic models instead
 
 class GraphRetriever:
     def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
@@ -235,8 +209,6 @@ class GraphRetriever:
             logger.error(f"Failed to build vector index: {e}")
             raise DatabaseError(f"Vector index build failed: {e}")
 
-    @validate_retriever_inputs
-    @type_checked
     def graph_search(self, query: str, max_hops: int = 2, limit: int = 10) -> List[PaperMetadata]:
         """
         Perform graph-based search with multi-hop reasoning.
@@ -454,8 +426,6 @@ class GraphRetriever:
             
             return {"method": method_name, "evolution": evolution}
 
-    @validate_retriever_inputs
-    @type_checked
     def hybrid_search(self, query: str, alpha: float = 0.7, limit: int = 10) -> List[PaperWithScore]:
         """
         Perform hybrid search combining vector similarity and graph structure.
@@ -1250,4 +1220,170 @@ class GraphRetriever:
                 "flow_count": len(strengths)
             }
         
-        return evolution 
+        return evolution
+
+    def advanced_search(self, query: str, search_type: str = "hybrid", **kwargs) -> List[PaperWithScore]:
+        """
+        Unified search method that combines all search capabilities.
+        
+        Args:
+            query: Search query
+            search_type: Type of search ("graph", "hybrid", "temporal", "entity")
+            **kwargs: Additional parameters based on search_type
+            
+        Returns:
+            List of relevant documents with scores
+        """
+        if search_type == "graph":
+            return self._graph_search_impl(query, **kwargs)
+        elif search_type == "hybrid":
+            return self._hybrid_search_impl(query, **kwargs)
+        elif search_type == "temporal":
+            return self._temporal_search_impl(query, **kwargs)
+        elif search_type == "entity":
+            return self._entity_search_impl(query, **kwargs)
+        else:
+            raise ValueError(f"Unknown search type: {search_type}")
+    
+    def _graph_search_impl(self, query: str, max_hops: int = 2, limit: int = 10) -> List[PaperWithScore]:
+        """Implementation of graph search."""
+        # Use existing graph_search logic but return PaperWithScore
+        papers = self.graph_search(query, max_hops, limit)
+        return [PaperWithScore(
+            paper_id=paper.paper_id,
+            title=paper.title,
+            abstract=paper.abstract,
+            year=paper.year,
+            journal=paper.journal,
+            citations=paper.citations,
+            authors=paper.authors,
+            keywords=paper.keywords,
+            methods=paper.methods,
+            vector_score=0.0,
+            graph_score=1.0,
+            hybrid_score=1.0
+        ) for paper in papers]
+    
+    def _hybrid_search_impl(self, query: str, alpha: float = 0.7, limit: int = 10) -> List[PaperWithScore]:
+        """Implementation of hybrid search."""
+        return self.hybrid_search(query, alpha, limit)
+    
+    def _temporal_search_impl(self, query: str, time_window: Tuple[int, int] = None, 
+                            temporal_weight: float = 0.3, limit: int = 10) -> List[PaperWithScore]:
+        """Implementation of temporal search."""
+        if not time_window:
+            time_window = (2020, datetime.now().year)
+        
+        start_time = time.time()
+        
+        try:
+            query_embedding = self.embedding_model.encode([query])
+            
+            with self.driver.session() as session:
+                cypher_query = """
+                MATCH (p:Paper)
+                WHERE p.year >= $start_year AND p.year <= $end_year
+                WITH p
+                OPTIONAL MATCH (p)-[:CITES]->(cited:Paper)
+                OPTIONAL MATCH (p)-[:AUTHORED_BY]->(author:Author)
+                
+                WITH p, 
+                     count(DISTINCT cited) as citations,
+                     count(DISTINCT author) as authors,
+                     p.year as year
+                
+                RETURN p as paper,
+                       citations,
+                       authors,
+                       year,
+                       (citations * 0.4 + authors * 0.3 + (2024 - year) * 0.3) as temporal_score
+                ORDER BY temporal_score DESC
+                LIMIT $limit
+                """
+                
+                result = session.run(cypher_query, {
+                    "start_year": time_window[0],
+                    "end_year": time_window[1],
+                    "limit": limit
+                })
+                
+                temporal_results = []
+                for record in result:
+                    paper = record["paper"]
+                    temporal_score = record["temporal_score"]
+                    
+                    # Calculate vector similarity
+                    vector_score = self._calculate_vector_similarity(query_embedding[0], paper)
+                    
+                    # Combine scores
+                    final_score = (1 - temporal_weight) * vector_score + temporal_weight * temporal_score
+                    
+                    temporal_results.append(PaperWithScore(
+                        paper_id=paper["paper_id"],
+                        title=paper["title"],
+                        abstract=paper["abstract"],
+                        year=paper["year"],
+                        journal=paper.get("journal"),
+                        citations=paper.get("citations", 0),
+                        authors=[],
+                        keywords=[],
+                        methods=[],
+                        vector_score=vector_score,
+                        graph_score=temporal_score,
+                        hybrid_score=final_score
+                    ))
+                
+                temporal_results.sort(key=lambda x: x["hybrid_score"], reverse=True)
+                
+                search_time = time.time() - start_time
+                self.search_times.append(search_time)
+                
+                logger.info(f"Temporal search completed in {search_time:.2f}s. Found {len(temporal_results)} papers.")
+                return temporal_results
+                
+        except Exception as e:
+            logger.error(f"Temporal search failed: {e}")
+            raise SearchError(f"Temporal search failed: {e}")
+    
+    def _entity_search_impl(self, query: str, entity_name: str, entity_type: str, 
+                          max_hops: int = 2, limit: int = 10) -> List[PaperWithScore]:
+        """Implementation of entity-centric search."""
+        try:
+            with self.driver.session() as session:
+                cypher_query = f"""
+                MATCH (e)
+                WHERE e.name = $entity_name OR e.text = $entity_name
+                OPTIONAL MATCH (e)-[:AUTHORED_BY|USES_METHOD|HAS_KEYWORD*1..{max_hops}]-(p:Paper)
+                RETURN DISTINCT p as paper
+                LIMIT $limit
+                """
+                
+                result = session.run(cypher_query, {
+                    "entity_name": entity_name,
+                    "limit": limit
+                })
+                
+                entity_results = []
+                for record in result:
+                    paper = record["paper"]
+                    if paper:
+                        entity_results.append(PaperWithScore(
+                            paper_id=paper["paper_id"],
+                            title=paper["title"],
+                            abstract=paper["abstract"],
+                            year=paper["year"],
+                            journal=paper.get("journal"),
+                            citations=paper.get("citations", 0),
+                            authors=[],
+                            keywords=[],
+                            methods=[],
+                            vector_score=0.0,
+                            graph_score=1.0,
+                            hybrid_score=1.0
+                        ))
+                
+                return entity_results
+                
+        except Exception as e:
+            logger.error(f"Entity search failed: {e}")
+            raise SearchError(f"Entity search failed: {e}") 
