@@ -17,12 +17,21 @@ import time
 from functools import wraps
 
 # Import validation utilities
-from ..validation import (
+import sys
+import os
+# Add the src directory to the path for imports
+current_dir = os.path.dirname(os.path.abspath(__file__))
+src_dir = os.path.dirname(os.path.dirname(current_dir))
+if src_dir not in sys.path:
+    sys.path.insert(0, src_dir)
+
+from validation import (
     validate_search_params, validate_database_config, validate_model_config,
-    validate_paper_data, Paper, SearchQuery, DatabaseConfig, ModelConfig,
-    type_checked, validate_inputs
+    validate_paper_data, Paper, SearchQuery, DatabaseConfig, ModelConfig
 )
-from ..types import (
+# Import our custom types module
+# Import from our custom types module
+from custom_types import (
     PaperId, PaperMetadata, PaperWithScore, SearchScore, SearchResult,
     EmbeddingVector, EmbeddingMatrix, Neo4jResult, ValidationError,
     DatabaseError, SearchError, ModelError, is_paper_metadata
@@ -136,7 +145,7 @@ class GraphRetriever:
                 """)
                 
                 documents: List[str] = []
-                metadata: List[PaperMetadata] = []
+                metadata: List[Dict[str, Any]] = []
                 
                 for record in result:
                     paper = record["p"]
@@ -172,17 +181,17 @@ class GraphRetriever:
                             doc_text += f"Methods: {', '.join(validated_paper.methods)}\n"
                         
                         documents.append(doc_text)
-                        metadata.append(PaperMetadata(
-                            paper_id=validated_paper.paper_id,
-                            title=validated_paper.title,
-                            abstract=validated_paper.abstract,
-                            year=validated_paper.year,
-                            journal=validated_paper.journal,
-                            citations=validated_paper.citations,
-                            keywords=validated_paper.keywords,
-                            authors=validated_paper.authors,
-                            methods=validated_paper.methods
-                        ))
+                        metadata.append({
+                            "paper_id": validated_paper.paper_id,
+                            "title": validated_paper.title,
+                            "abstract": validated_paper.abstract,
+                            "year": validated_paper.year,
+                            "journal": validated_paper.journal,
+                            "citations": validated_paper.citations,
+                            "keywords": validated_paper.keywords,
+                            "authors": validated_paper.authors,
+                            "methods": validated_paper.methods
+                        })
                         
                     except Exception as e:
                         logger.warning(f"Skipping invalid paper {paper.get('paper_id', 'unknown')}: {e}")
@@ -242,7 +251,7 @@ class GraphRetriever:
                 scores, indices = self.index.search(query_embedding, k=min(20, len(self.documents)))
                 
                 initial_papers = [self.document_metadata[i] for i in indices[0]]
-                paper_ids = [paper.paper_id for paper in initial_papers]
+                paper_ids = [paper["paper_id"] for paper in initial_papers]
                 
             except Exception as e:
                 logger.error(f"Vector search failed: {e}")
@@ -481,44 +490,72 @@ class GraphRetriever:
                     doc = self.document_metadata[idx]
                     vector_score = float(vector_scores[0][i])
                     
+                    # Access dictionary values directly
+                    paper_id = doc["paper_id"]
+                    title = doc["title"]
+                    abstract = doc["abstract"]
+                    year = doc["year"]
+                    journal = doc["journal"]
+                    citations = doc["citations"]
+                    authors = doc["authors"]
+                    keywords = doc["keywords"]
+                    methods = doc["methods"]
+                    
                     hybrid_results.append(PaperWithScore(
-                        paper_id=doc.paper_id,
-                        title=doc.title,
-                        abstract=doc.abstract,
-                        year=doc.year,
-                        journal=doc.journal,
-                        citations=doc.citations,
-                        authors=doc.authors,
-                        keywords=doc.keywords,
-                        methods=doc.methods,
+                        paper_id=paper_id,
+                        title=title,
+                        abstract=abstract,
+                        year=year,
+                        journal=journal,
+                        citations=citations,
+                        authors=authors,
+                        keywords=keywords,
+                        methods=methods,
                         vector_score=vector_score,
                         graph_score=0.0,
                         hybrid_score=alpha * vector_score
                     ))
-                    seen_papers.add(doc.paper_id)
+                    seen_papers.add(paper_id)
             
             # Add graph results (avoid duplicates)
             for doc in graph_results:
-                if doc.paper_id not in seen_papers:
+                # Access dictionary values directly
+                paper_id = doc["paper_id"]
+                if paper_id not in seen_papers:
+                    title = doc["title"]
+                    abstract = doc["abstract"]
+                    year = doc["year"]
+                    journal = doc["journal"]
+                    citations = doc["citations"]
+                    authors = doc["authors"]
+                    keywords = doc["keywords"]
+                    methods = doc["methods"]
+                    
                     hybrid_results.append(PaperWithScore(
-                        paper_id=doc.paper_id,
-                        title=doc.title,
-                        abstract=doc.abstract,
-                        year=doc.year,
-                        journal=doc.journal,
-                        citations=doc.citations,
-                        authors=doc.authors,
-                        keywords=doc.keywords,
-                        methods=doc.methods,
+                        paper_id=paper_id,
+                        title=title,
+                        abstract=abstract,
+                        year=year,
+                        journal=journal,
+                        citations=citations,
+                        authors=authors,
+                        keywords=keywords,
+                        methods=methods,
                         vector_score=0.0,
                         graph_score=1.0,
                         hybrid_score=(1 - alpha) * 1.0
                     ))
-                    seen_papers.add(doc.paper_id)
+                    seen_papers.add(paper_id)
             
             # Sort by hybrid score and return top results
-            hybrid_results.sort(key=lambda x: x["hybrid_score"], reverse=True)
-            result = hybrid_results[:limit]
+            try:
+                hybrid_results.sort(key=lambda x: x["hybrid_score"], reverse=True)
+                result = hybrid_results[:limit]
+            except Exception as e:
+                logger.error(f"Error sorting hybrid results: {e}")
+                logger.error(f"First result type: {type(hybrid_results[0]) if hybrid_results else 'No results'}")
+                logger.error(f"First result keys: {list(hybrid_results[0].keys()) if hybrid_results else 'No results'}")
+                raise
             
             search_time = time.time() - start_time
             self.search_times.append(search_time)
@@ -1250,15 +1287,15 @@ class GraphRetriever:
         # Use existing graph_search logic but return PaperWithScore
         papers = self.graph_search(query, max_hops, limit)
         return [PaperWithScore(
-            paper_id=paper.paper_id,
-            title=paper.title,
-            abstract=paper.abstract,
-            year=paper.year,
-            journal=paper.journal,
-            citations=paper.citations,
-            authors=paper.authors,
-            keywords=paper.keywords,
-            methods=paper.methods,
+            paper_id=paper["paper_id"],
+            title=paper["title"],
+            abstract=paper["abstract"],
+            year=paper["year"],
+            journal=paper["journal"],
+            citations=paper["citations"],
+            authors=paper["authors"],
+            keywords=paper["keywords"],
+            methods=paper["methods"],
             vector_score=0.0,
             graph_score=1.0,
             hybrid_score=1.0

@@ -17,9 +17,10 @@ beautifulsoup4==4.12.2
 arxiv==2.1.0
 scholarly==1.7.11
 py2neo==2021.2.4
-transformers==4.36.2
-torch==2.1.2
-sentence-transformers==2.2.2
+transformers>=4.36.0
+torch>=2.1.0
+sentence-transformers>=2.2.0
+huggingface-hub>=0.19.0
 faiss-cpu==1.7.4
 tiktoken==0.5.2
 # Validation and type checking
