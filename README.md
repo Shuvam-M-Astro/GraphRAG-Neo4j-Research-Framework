@@ -31,45 +31,54 @@ This project implements a Graph RAG (Retrieval-Augmented Generation) system spec
                        └─────────────────┘
 ```
 
-## Quick Start with Docker
+## Quick Start
 
-### 1. Start Neo4j Database with Docker
+### Option 1: Using Docker (Recommended)
+
+#### 1. Start Neo4j Database with Docker
 ```bash
-docker run -p 7474:7474 -p 7687:7687 \
-  -e NEO4J_AUTH=neo4j/password123 \
-  -e NEO4J_PLUGINS='["apoc"]' \
-  -e NEO4J_dbms_security_procedures_unrestricted=apoc.* \
-  neo4j:latest
+docker run -p 7474:7474 -p 7687:7687 -e NEO4J_AUTH=neo4j/password123 neo4j:5.15.0
 ```
 
-### 2. Install Dependencies
+**Note**: Keep this terminal window open. The Neo4j database will be accessible at:
+- Web interface: http://localhost:7474
+- Bolt connection: bolt://localhost:7687
+- Username: neo4j
+- Password: password123
+
+#### 2. Set Up Python Environment
 ```bash
+# Create and activate conda environment
+conda create -n graphrag python=3.11 -y
+conda activate graphrag
+
+# Install dependencies
 pip install -r requirements.txt
 ```
 
-### 3. Environment Configuration
-Create a `.env` file:
-```env
-NEO4J_URI=bolt://localhost:7687
-NEO4J_USER=neo4j
-NEO4J_PASSWORD=password123
-OPENAI_API_KEY=your_openai_api_key
+#### 3. Environment Configuration
+```bash
+# Copy environment template
+copy env_example.txt .env
+
+# Edit .env file with your OpenAI API key
 ```
 
-### 4. Initialize the Database
+#### 4. Initialize the Database
 ```bash
 python src/database/init_database.py
 ```
 
-### 5. Test the System
-```bash
-python test_suite.py
-```
-
-### 6. Run the Web Application
+#### 5. Run the Web Application
 ```bash
 streamlit run src/app/main.py
 ```
+
+### Option 2: Using Neo4j Desktop
+
+1. Download and install Neo4j Desktop from https://neo4j.com/download/
+2. Create a new database and set your password
+3. Follow steps 2-5 from Option 1 above
 
 ## Viewing the Graph Database
 
