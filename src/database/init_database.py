@@ -75,12 +75,13 @@ class Neo4jDatabase:
     def create_sample_data(self):
         """Create sample research data for testing."""
         with self.driver.session() as session:
-            # Sample papers
+            # Sample papers with diverse topics
             papers = [
+                # Machine Learning Papers
                 {
                     "paper_id": "p1",
                     "title": "Deep Learning for Natural Language Processing",
-                    "abstract": "A comprehensive survey of deep learning approaches in NLP",
+                    "abstract": "A comprehensive survey of deep learning approaches in NLP, covering transformer architectures and attention mechanisms for text processing and language understanding.",
                     "year": 2023,
                     "journal": "Nature Machine Intelligence",
                     "citations": 150
@@ -88,7 +89,7 @@ class Neo4jDatabase:
                 {
                     "paper_id": "p2", 
                     "title": "Graph Neural Networks for Scientific Discovery",
-                    "abstract": "Novel applications of GNNs in scientific research",
+                    "abstract": "Novel applications of GNNs in scientific research, demonstrating how graph-based learning can accelerate drug discovery and molecular property prediction.",
                     "year": 2023,
                     "journal": "Science",
                     "citations": 89
@@ -96,34 +97,128 @@ class Neo4jDatabase:
                 {
                     "paper_id": "p3",
                     "title": "Transformer Architecture in Computer Vision",
-                    "abstract": "Adapting transformer models for visual tasks",
+                    "abstract": "Adapting transformer models for visual tasks, including image classification, object detection, and video understanding with attention-based architectures.",
                     "year": 2022,
                     "journal": "CVPR",
                     "citations": 234
+                },
+                
+                # ADHD Research Papers
+                {
+                    "paper_id": "p4",
+                    "title": "Neurobiological Mechanisms of ADHD: A Comprehensive Review",
+                    "abstract": "This review examines the neurobiological underpinnings of Attention Deficit Hyperactivity Disorder, including dopaminergic and noradrenergic systems, brain structure abnormalities, and genetic factors contributing to the disorder.",
+                    "year": 2023,
+                    "journal": "Nature Reviews Neuroscience",
+                    "citations": 67
+                },
+                {
+                    "paper_id": "p5",
+                    "title": "Cognitive Behavioral Therapy for Adult ADHD: A Meta-Analysis",
+                    "abstract": "Meta-analysis of 15 randomized controlled trials examining the efficacy of cognitive behavioral therapy in treating adult ADHD symptoms, including attention, impulsivity, and executive function improvements.",
+                    "year": 2022,
+                    "journal": "Journal of Clinical Psychology",
+                    "citations": 45
+                },
+                {
+                    "paper_id": "p6",
+                    "title": "Pharmacological Treatment of ADHD in Children and Adolescents",
+                    "abstract": "Systematic review of stimulant and non-stimulant medications for ADHD treatment, including methylphenidate, amphetamines, and atomoxetine, with safety and efficacy comparisons.",
+                    "year": 2023,
+                    "journal": "Pediatrics",
+                    "citations": 123
+                },
+                
+                # Psychology Research Papers
+                {
+                    "paper_id": "p7",
+                    "title": "Depression and Anxiety: Neural Circuit Mechanisms",
+                    "abstract": "Investigation of neural circuit mechanisms underlying depression and anxiety disorders, focusing on prefrontal cortex, amygdala, and hippocampus interactions in emotional regulation.",
+                    "year": 2022,
+                    "journal": "Nature Neuroscience",
+                    "citations": 89
+                },
+                {
+                    "paper_id": "p8",
+                    "title": "Social Media Use and Adolescent Mental Health",
+                    "abstract": "Longitudinal study examining the relationship between social media usage patterns and mental health outcomes in adolescents, including depression, anxiety, and self-esteem measures.",
+                    "year": 2023,
+                    "journal": "JAMA Pediatrics",
+                    "citations": 156
+                },
+                
+                # Medical Research Papers
+                {
+                    "paper_id": "p9",
+                    "title": "COVID-19 Long-term Effects on Cognitive Function",
+                    "abstract": "Prospective cohort study investigating long-term cognitive effects of COVID-19 infection, including memory, attention, and executive function assessments in recovered patients.",
+                    "year": 2023,
+                    "journal": "The Lancet",
+                    "citations": 234
+                },
+                {
+                    "paper_id": "p10",
+                    "title": "Precision Medicine in Cancer Treatment",
+                    "abstract": "Review of precision medicine approaches in oncology, including genomic profiling, targeted therapies, and personalized treatment strategies for various cancer types.",
+                    "year": 2022,
+                    "journal": "Nature Medicine",
+                    "citations": 178
                 }
             ]
 
-            # Sample authors
+            # Sample authors with diverse backgrounds
             authors = [
                 {"author_id": "a1", "name": "Dr. Sarah Johnson", "institution": "MIT"},
                 {"author_id": "a2", "name": "Prof. Michael Chen", "institution": "Stanford"},
-                {"author_id": "a3", "name": "Dr. Emily Rodriguez", "institution": "UC Berkeley"}
+                {"author_id": "a3", "name": "Dr. Emily Rodriguez", "institution": "UC Berkeley"},
+                {"author_id": "a4", "name": "Dr. James Wilson", "institution": "Harvard Medical School"},
+                {"author_id": "a5", "name": "Prof. Lisa Thompson", "institution": "Yale University"},
+                {"author_id": "a6", "name": "Dr. Robert Kim", "institution": "Johns Hopkins"},
+                {"author_id": "a7", "name": "Prof. Maria Garcia", "institution": "UCLA"},
+                {"author_id": "a8", "name": "Dr. David Brown", "institution": "Columbia University"}
             ]
 
-            # Sample methods
+            # Sample methods across different fields
             methods = [
                 {"method_id": "m1", "name": "Transformer", "category": "Neural Architecture"},
                 {"method_id": "m2", "name": "Graph Neural Network", "category": "Graph Learning"},
-                {"method_id": "m3", "name": "Attention Mechanism", "category": "Neural Component"}
+                {"method_id": "m3", "name": "Attention Mechanism", "category": "Neural Component"},
+                {"method_id": "m4", "name": "Cognitive Behavioral Therapy", "category": "Psychological Treatment"},
+                {"method_id": "m5", "name": "Meta-Analysis", "category": "Statistical Method"},
+                {"method_id": "m6", "name": "Randomized Controlled Trial", "category": "Clinical Research"},
+                {"method_id": "m7", "name": "fMRI", "category": "Neuroimaging"},
+                {"method_id": "m8", "name": "Genomic Sequencing", "category": "Molecular Biology"},
+                {"method_id": "m9", "name": "Longitudinal Study", "category": "Research Design"},
+                {"method_id": "m10", "name": "Machine Learning", "category": "Computational Method"}
             ]
 
-            # Sample keywords
+            # Sample keywords across diverse topics
             keywords = [
+                # Machine Learning
                 {"keyword_id": "k1", "text": "deep learning"},
                 {"keyword_id": "k2", "text": "natural language processing"},
                 {"keyword_id": "k3", "text": "graph neural networks"},
                 {"keyword_id": "k4", "text": "computer vision"},
-                {"keyword_id": "k5", "text": "transformer"}
+                {"keyword_id": "k5", "text": "transformer"},
+                
+                # ADHD and Psychology
+                {"keyword_id": "k6", "text": "adhd"},
+                {"keyword_id": "k7", "text": "attention deficit hyperactivity disorder"},
+                {"keyword_id": "k8", "text": "cognitive behavioral therapy"},
+                {"keyword_id": "k9", "text": "depression"},
+                {"keyword_id": "k10", "text": "anxiety"},
+                {"keyword_id": "k11", "text": "mental health"},
+                {"keyword_id": "k12", "text": "neurobiology"},
+                {"keyword_id": "k13", "text": "psychology"},
+                
+                # Medical Research
+                {"keyword_id": "k14", "text": "covid-19"},
+                {"keyword_id": "k15", "text": "cancer"},
+                {"keyword_id": "k16", "text": "precision medicine"},
+                {"keyword_id": "k17", "text": "pharmacology"},
+                {"keyword_id": "k18", "text": "clinical trial"},
+                {"keyword_id": "k19", "text": "neuroscience"},
+                {"keyword_id": "k20", "text": "social media"}
             ]
 
             # Create nodes using MERGE to handle duplicates
@@ -170,31 +265,94 @@ class Neo4jDatabase:
                 ("p2", "a3", "AUTHORED_BY"),
                 ("p3", "a1", "AUTHORED_BY"),
                 ("p3", "a3", "AUTHORED_BY"),
+                ("p4", "a4", "AUTHORED_BY"),
+                ("p4", "a5", "AUTHORED_BY"),
+                ("p5", "a5", "AUTHORED_BY"),
+                ("p5", "a6", "AUTHORED_BY"),
+                ("p6", "a4", "AUTHORED_BY"),
+                ("p6", "a7", "AUTHORED_BY"),
+                ("p7", "a5", "AUTHORED_BY"),
+                ("p7", "a8", "AUTHORED_BY"),
+                ("p8", "a6", "AUTHORED_BY"),
+                ("p8", "a7", "AUTHORED_BY"),
+                ("p9", "a4", "AUTHORED_BY"),
+                ("p9", "a8", "AUTHORED_BY"),
+                ("p10", "a6", "AUTHORED_BY"),
+                ("p10", "a7", "AUTHORED_BY"),
                 
                 # Paper-Method relationships
                 ("p1", "m1", "USES_METHOD"),
                 ("p1", "m3", "USES_METHOD"),
+                ("p1", "m10", "USES_METHOD"),
                 ("p2", "m2", "USES_METHOD"),
+                ("p2", "m10", "USES_METHOD"),
                 ("p3", "m1", "USES_METHOD"),
                 ("p3", "m3", "USES_METHOD"),
+                ("p4", "m7", "USES_METHOD"),
+                ("p4", "m9", "USES_METHOD"),
+                ("p5", "m4", "USES_METHOD"),
+                ("p5", "m5", "USES_METHOD"),
+                ("p6", "m6", "USES_METHOD"),
+                ("p6", "m17", "USES_METHOD"),
+                ("p7", "m7", "USES_METHOD"),
+                ("p7", "m9", "USES_METHOD"),
+                ("p8", "m9", "USES_METHOD"),
+                ("p9", "m9", "USES_METHOD"),
+                ("p10", "m8", "USES_METHOD"),
+                ("p10", "m10", "USES_METHOD"),
                 
                 # Paper-Keyword relationships
                 ("p1", "k1", "HAS_KEYWORD"),
                 ("p1", "k2", "HAS_KEYWORD"),
+                ("p1", "k5", "HAS_KEYWORD"),
                 ("p2", "k1", "HAS_KEYWORD"),
                 ("p2", "k3", "HAS_KEYWORD"),
                 ("p3", "k1", "HAS_KEYWORD"),
                 ("p3", "k4", "HAS_KEYWORD"),
                 ("p3", "k5", "HAS_KEYWORD"),
+                ("p4", "k6", "HAS_KEYWORD"),
+                ("p4", "k7", "HAS_KEYWORD"),
+                ("p4", "k12", "HAS_KEYWORD"),
+                ("p4", "k19", "HAS_KEYWORD"),
+                ("p5", "k6", "HAS_KEYWORD"),
+                ("p5", "k7", "HAS_KEYWORD"),
+                ("p5", "k8", "HAS_KEYWORD"),
+                ("p5", "k13", "HAS_KEYWORD"),
+                ("p6", "k6", "HAS_KEYWORD"),
+                ("p6", "k7", "HAS_KEYWORD"),
+                ("p6", "k17", "HAS_KEYWORD"),
+                ("p6", "k18", "HAS_KEYWORD"),
+                ("p7", "k9", "HAS_KEYWORD"),
+                ("p7", "k10", "HAS_KEYWORD"),
+                ("p7", "k12", "HAS_KEYWORD"),
+                ("p7", "k19", "HAS_KEYWORD"),
+                ("p8", "k11", "HAS_KEYWORD"),
+                ("p8", "k13", "HAS_KEYWORD"),
+                ("p8", "k20", "HAS_KEYWORD"),
+                ("p9", "k14", "HAS_KEYWORD"),
+                ("p9", "k19", "HAS_KEYWORD"),
+                ("p10", "k15", "HAS_KEYWORD"),
+                ("p10", "k16", "HAS_KEYWORD"),
+                ("p10", "k18", "HAS_KEYWORD"),
                 
                 # Citation relationships
                 ("p2", "p1", "CITES"),
                 ("p3", "p1", "CITES"),
+                ("p5", "p4", "CITES"),
+                ("p6", "p4", "CITES"),
+                ("p7", "p4", "CITES"),
+                ("p8", "p7", "CITES"),
+                ("p9", "p7", "CITES"),
+                ("p10", "p9", "CITES"),
                 
                 # Author collaboration
                 ("a1", "a2", "COLLABORATED_WITH"),
                 ("a2", "a3", "COLLABORATED_WITH"),
-                ("a1", "a3", "COLLABORATED_WITH")
+                ("a1", "a3", "COLLABORATED_WITH"),
+                ("a4", "a5", "COLLABORATED_WITH"),
+                ("a5", "a6", "COLLABORATED_WITH"),
+                ("a6", "a7", "COLLABORATED_WITH"),
+                ("a7", "a8", "COLLABORATED_WITH")
             ]
 
             for source, target, relationship in relationships:
