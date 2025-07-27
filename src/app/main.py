@@ -1,6 +1,7 @@
 """
 Streamlit Web Application for Graph RAG Scientific Research
 Interactive interface for research analysis and exploration.
+Enhanced with performance optimizations: lazy loading, caching, optimistic updates, and offline support.
 """
 
 import streamlit as st
@@ -11,11 +12,17 @@ from plotly.subplots import make_subplots
 import json
 import sys
 import os
+import time
 
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from graph_rag.orchestrator import GraphRAGOrchestrator
+from app.performance import (
+    performance_manager, lazy_loader, optimistic_updater, offline_manager,
+    cached_result, show_performance_stats, show_offline_status, create_lazy_dataframe
+)
+from app.lazy_components import lazy_viz, lazy_table, lazy_search, lazy_metrics
 
 # Page configuration
 st.set_page_config(
@@ -55,19 +62,26 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-@st.cache_resource
+@cached_result(max_age_hours=1)  # Cache for 1 hour
 def initialize_orchestrator():
-    """Initialize the Graph RAG orchestrator with caching."""
+    """Initialize the Graph RAG orchestrator with enhanced caching."""
     try:
         return GraphRAGOrchestrator()
     except Exception as e:
         st.error(f"Failed to initialize orchestrator: {e}")
         return None
 
+@cached_result(max_age_hours=2)
 def display_papers_table(papers):
-    """Display papers in a formatted table."""
+    """Display papers in a formatted table with lazy loading."""
     if not papers:
         st.warning("No papers found.")
+        return
+    
+    # Check if we should use lazy loading for large datasets
+    if len(papers) > 20:
+        st.info(f"📊 Loading {len(papers)} papers with lazy loading...")
+        create_lazy_dataframe(papers, page_size=10)
         return
     
     # Prepare data for display
@@ -146,9 +160,26 @@ def create_citation_network_plot(papers):
 def main():
     """Main application function."""
     
-    # Header
+    # Header with performance status
     st.markdown('<h1 class="main-header">🔬 GraphRAG Neo4j Research Framework</h1>', unsafe_allow_html=True)
     st.markdown("### Advanced Research Analysis with Graph-Based Retrieval and Generation")
+    
+    # Performance status bar
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        if performance_manager.offline_mode:
+            st.warning("🔄 Offline Mode")
+        else:
+            st.success("🌐 Online")
+    with col2:
+        cache_hit_rate = 0
+        if sum(performance_manager.cache_stats.values()) > 0:
+            cache_hit_rate = performance_manager.cache_stats["hits"] / sum(performance_manager.cache_stats.values()) * 100
+        st.metric("Cache Hit Rate", f"{cache_hit_rate:.1f}%")
+    with col3:
+        st.metric("Cache Hits", performance_manager.cache_stats["hits"])
+    with col4:
+        st.metric("Cache Misses", performance_manager.cache_stats["misses"])
     
     # Initialize orchestrator
     orchestrator = initialize_orchestrator()
@@ -156,8 +187,42 @@ def main():
         st.error("Failed to initialize the system. Please check your configuration.")
         return
     
-    # Sidebar for navigation
+    # Sidebar for navigation and performance controls
     st.sidebar.title("Navigation")
+    
+    # Performance controls
+    with st.sidebar.expander("⚡ Performance Settings", expanded=False):
+        show_performance_stats()
+        st.markdown("---")
+        show_offline_status()
+        st.markdown("---")
+        
+        # Cache management
+        st.subheader("🗄️ Cache Management")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🗑️ Clear Cache"):
+                performance_manager.clear_cache()
+        with col2:
+            if st.button("🔄 Refresh"):
+                st.rerun()
+        
+        # Cache info
+        cache_files = len([f for f in os.listdir(performance_manager.cache_dir) if f.endswith('.pkl')])
+        st.info(f"📁 Cached items: {cache_files}")
+        
+        # Offline data info
+        offline_items = len(offline_manager.offline_data)
+        st.info(f"📱 Offline items: {offline_items}")
+        
+        st.markdown("---")
+        
+        # Search history
+        if lazy_search.search_history:
+            st.subheader("🔍 Recent Searches")
+            for i, search in enumerate(lazy_search.search_history[-5:]):  # Show last 5
+                st.write(f"• {search['query']}")
+    
     page = st.sidebar.selectbox(
         "Choose Analysis Type",
         [
@@ -177,8 +242,23 @@ def main():
         col1, col2 = st.columns([2, 1])
         
         with col1:
+            # Add search suggestions
+            suggestions = lazy_search.get_search_suggestions("")
+            if suggestions:
+                st.info(f"💡 Recent searches: {', '.join(suggestions[:3])}")
+            
             query = st.text_input("Enter your research topic or query:", 
                                  placeholder="e.g., deep learning in natural language processing")
+            
+            # Show suggestions as user types
+            if query:
+                query_suggestions = lazy_search.get_search_suggestions(query)
+                if query_suggestions:
+                    st.write("💡 Suggestions:")
+                    for suggestion in query_suggestions:
+                        if st.button(f"🔍 {suggestion}", key=f"sugg_{suggestion}"):
+                            st.session_state['suggested_query'] = suggestion
+                            st.rerun()
             
         with col2:
             analysis_type = st.selectbox(
@@ -188,64 +268,97 @@ def main():
         
         if st.button("Analyze Research Topic", type="primary"):
             if query:
-                with st.spinner("Analyzing research topic..."):
+                # Use optimistic updates for immediate feedback
+                start_time = time.time()
+                
+                # Show immediate feedback
+                with st.container():
+                    st.info(f"🔍 Analyzing research topic: {query}")
+                    
+                    # Create placeholders for results
+                    metrics_placeholder = st.empty()
+                    papers_placeholder = st.empty()
+                    viz_placeholder = st.empty()
+                    summary_placeholder = st.empty()
+                    
+                    # Show optimistic loading state
+                    with metrics_placeholder.container():
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.metric("Papers Found", "Loading...")
+                        with col2:
+                            st.metric("Avg Citations", "Loading...")
+                        with col3:
+                            st.metric("Avg Year", "Loading...")
+                        with col4:
+                            st.metric("Unique Methods", "Loading...")
+                
+                # Perform actual analysis
+                try:
                     results = orchestrator.analyze_research_topic(query, analysis_type)
                     
                     if "error" in results:
                         st.error(results["error"])
                     else:
-                        # Display results
-                        st.success(f"Analysis completed! Found {len(results['retrieved_papers'])} relevant papers.")
+                        # Calculate execution time
+                        execution_time = time.time() - start_time
                         
-                        # Metrics
-                        col1, col2, col3, col4 = st.columns(4)
-                        with col1:
-                            st.metric("Papers Found", len(results["retrieved_papers"]))
-                        with col2:
-                            avg_citations = sum(p.get("citations", 0) for p in results["retrieved_papers"]) / len(results["retrieved_papers"])
-                            st.metric("Avg Citations", f"{avg_citations:.1f}")
-                        with col3:
-                            avg_year = sum(p.get("year", 2020) for p in results["retrieved_papers"]) / len(results["retrieved_papers"])
-                            st.metric("Avg Year", f"{avg_year:.0f}")
-                        with col4:
-                            unique_methods = len(set(method for p in results["retrieved_papers"] for method in p.get("methods", [])))
-                            st.metric("Unique Methods", unique_methods)
+                        # Display results with performance info
+                        st.success(f"✅ Analysis completed in {execution_time:.2f}s! Found {len(results['retrieved_papers'])} relevant papers.")
                         
-                        # Display papers
-                        st.subheader("📚 Retrieved Papers")
-                        display_papers_table(results["retrieved_papers"])
+                        # Update metrics with lazy loading
+                        with metrics_placeholder.container():
+                            lazy_metrics.display_lazy_metrics(results["retrieved_papers"])
                         
-                        # Citation network
+                        # Display papers with lazy loading
+                        with papers_placeholder.container():
+                            lazy_table.display_lazy_table(results["retrieved_papers"], "Retrieved Papers")
+                        
+                        # Lazy load visualization
                         if len(results["retrieved_papers"]) > 1:
-                            st.subheader("📈 Citation Network")
-                            fig = create_citation_network_plot(results["retrieved_papers"])
-                            if fig:
-                                st.plotly_chart(fig, use_container_width=True)
+                            with viz_placeholder.container():
+                                st.subheader("📈 Citation Network")
+                                # Use lazy loading for visualization
+                                fig = lazy_viz.lazy_citation_network(results["retrieved_papers"])
+                                if fig:
+                                    st.plotly_chart(fig, use_container_width=True)
                         
-                        # Analysis results
-                        if "research_summary" in results:
-                            st.subheader("📋 Research Summary")
-                            st.markdown('<div class="result-box">', unsafe_allow_html=True)
-                            st.write(results["research_summary"])
-                            st.markdown('</div>', unsafe_allow_html=True)
+                        # Display analysis results
+                        with summary_placeholder.container():
+                            if "research_summary" in results:
+                                st.subheader("📋 Research Summary")
+                                st.markdown('<div class="result-box">', unsafe_allow_html=True)
+                                st.write(results["research_summary"])
+                                st.markdown('</div>', unsafe_allow_html=True)
+                            
+                            if "gap_analysis" in results:
+                                st.subheader("🔍 Gap Analysis")
+                                st.markdown('<div class="result-box">', unsafe_allow_html=True)
+                                st.write(results["gap_analysis"])
+                                st.markdown('</div>', unsafe_allow_html=True)
+                            
+                            if "literature_review" in results:
+                                st.subheader("📖 Literature Review")
+                                st.markdown('<div class="result-box">', unsafe_allow_html=True)
+                                st.write(results["literature_review"])
+                                st.markdown('</div>', unsafe_allow_html=True)
+                            
+                            if "research_recommendations" in results:
+                                st.subheader("💡 Research Recommendations")
+                                st.markdown('<div class="result-box">', unsafe_allow_html=True)
+                                st.write(results["research_recommendations"])
+                                st.markdown('</div>', unsafe_allow_html=True)
                         
-                        if "gap_analysis" in results:
-                            st.subheader("🔍 Gap Analysis")
-                            st.markdown('<div class="result-box">', unsafe_allow_html=True)
-                            st.write(results["gap_analysis"])
-                            st.markdown('</div>', unsafe_allow_html=True)
+                        # Save to offline storage for offline access
+                        offline_manager.save_offline_data(f"analysis_{query}", results)
                         
-                        if "literature_review" in results:
-                            st.subheader("📖 Literature Review")
-                            st.markdown('<div class="result-box">', unsafe_allow_html=True)
-                            st.write(results["literature_review"])
-                            st.markdown('</div>', unsafe_allow_html=True)
-                        
-                        if "research_recommendations" in results:
-                            st.subheader("💡 Research Recommendations")
-                            st.markdown('<div class="result-box">', unsafe_allow_html=True)
-                            st.write(results["research_recommendations"])
-                            st.markdown('</div>', unsafe_allow_html=True)
+                except Exception as e:
+                    st.error(f"❌ Analysis failed: {e}")
+                    # Show cached results if available
+                    cached_results = offline_manager.get_offline_data(f"analysis_{query}")
+                    if cached_results:
+                        st.info("📱 Showing cached results (offline mode)")
+                        # Display cached results
             else:
                 st.warning("Please enter a research topic.")
     
