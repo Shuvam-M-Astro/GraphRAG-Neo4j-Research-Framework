@@ -62,13 +62,31 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-@cached_result(max_age_hours=1)  # Cache for 1 hour
 def initialize_orchestrator():
-    """Initialize the Graph RAG orchestrator with enhanced caching."""
+    """Initialize the Graph RAG orchestrator."""
     try:
-        return GraphRAGOrchestrator()
+        with st.spinner("Initializing GraphRAG orchestrator..."):
+            orchestrator = GraphRAGOrchestrator()
+            st.success("✅ Orchestrator initialized successfully!")
+            return orchestrator
     except Exception as e:
-        st.error(f"Failed to initialize orchestrator: {e}")
+        st.error(f"❌ Failed to initialize orchestrator: {e}")
+        
+        # Provide helpful error messages for common issues
+        if "meta tensor" in str(e).lower():
+            st.info("💡 **Meta tensor error detected.** This is a known issue with newer PyTorch versions.")
+            st.info("The system will attempt to use CPU-only initialization as a fallback.")
+        elif "embedding model" in str(e).lower():
+            st.info("💡 **Embedding model error detected.** This might be due to:")
+            st.info("• Missing model files (check internet connection)")
+            st.info("• PyTorch version compatibility issues")
+            st.info("• Insufficient memory for model loading")
+        elif "database" in str(e).lower():
+            st.info("💡 **Database connection error detected.** Please check:")
+            st.info("• Neo4j database is running")
+            st.info("• Database credentials in .env file")
+            st.info("• Network connectivity to database")
+        
         return None
 
 @cached_result(max_age_hours=2)
@@ -157,6 +175,62 @@ def create_citation_network_plot(papers):
     
     return fig
 
+def run_system_diagnostics():
+    """Run system diagnostics to help troubleshoot issues."""
+    st.subheader("🔧 System Diagnostics")
+    
+    # Check Python and package versions
+    import sys
+    import torch
+    import transformers
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.write("**Python Version:**", sys.version)
+        st.write("**PyTorch Version:**", torch.__version__)
+        st.write("**Transformers Version:**", transformers.__version__)
+    
+    with col2:
+        # Check CUDA availability
+        cuda_available = torch.cuda.is_available()
+        st.write("**CUDA Available:**", "✅ Yes" if cuda_available else "❌ No")
+        
+        if cuda_available:
+            st.write("**CUDA Version:**", torch.version.cuda)
+            st.write("**GPU Count:**", torch.cuda.device_count())
+        
+        # Check environment variables
+        import os
+        neo4j_uri = os.getenv("NEO4J_URI", "Not set")
+        st.write("**Neo4j URI:**", neo4j_uri)
+    
+    # Test embedding model initialization
+    if st.button("Test Embedding Model"):
+        try:
+            from graph_rag.graph_retriever import safe_initialize_sentence_transformer
+            with st.spinner("Testing embedding model..."):
+                model = safe_initialize_sentence_transformer("all-MiniLM-L6-v2")
+                test_embedding = model.encode("Test sentence")
+                st.success(f"✅ Embedding model test successful! Dimension: {len(test_embedding)}")
+        except Exception as e:
+            st.error(f"❌ Embedding model test failed: {e}")
+    
+    # Test database connection
+    if st.button("Test Database Connection"):
+        try:
+            from database.init_database import Neo4jDatabase
+            with st.spinner("Testing database connection..."):
+                db = Neo4jDatabase()
+                db.connect()
+                with db.driver.session() as session:
+                    result = session.run("RETURN 1 as test")
+                    test_value = result.single()["test"]
+                db.close()
+                st.success(f"✅ Database connection successful! Test value: {test_value}")
+        except Exception as e:
+            st.error(f"❌ Database connection test failed: {e}")
+
 def main():
     """Main application function."""
     
@@ -231,7 +305,8 @@ def main():
             "Research Gap Analysis",
             "Methodology Evolution",
             "Collaboration Network",
-            "Multi-hop Reasoning"
+            "Multi-hop Reasoning",
+            "System Diagnostics"
         ]
     )
     
@@ -536,6 +611,9 @@ def main():
                         st.markdown('</div>', unsafe_allow_html=True)
             else:
                 st.warning("Please enter a research query.")
+    
+    elif page == "System Diagnostics":
+        run_system_diagnostics()
     
     # Footer
     st.markdown("---")
