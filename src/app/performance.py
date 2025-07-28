@@ -68,8 +68,15 @@ class PerformanceManager:
         """Save data to cache."""
         cache_path = self.get_cache_path(cache_key)
         try:
+            # Check if data can be pickled before attempting to save
+            if not self.is_pickleable(data):
+                st.warning(f"Cannot cache unpickleable object: {type(data).__name__}")
+                return
+            
             with open(cache_path, 'wb') as f:
                 pickle.dump(data, f)
+        except (pickle.PicklingError, TypeError) as e:
+            st.warning(f"Cache saving error (unpickleable object): {e}")
         except Exception as e:
             st.warning(f"Cache saving error: {e}")
     
@@ -80,6 +87,14 @@ class PerformanceManager:
                 os.remove(os.path.join(self.cache_dir, file))
         self.cache_stats = {"hits": 0, "misses": 0}
         st.success("Cache cleared successfully!")
+    
+    def is_pickleable(self, obj: Any) -> bool:
+        """Check if an object can be safely pickled."""
+        try:
+            pickle.dumps(obj)
+            return True
+        except (pickle.PicklingError, TypeError):
+            return False
 
 class LazyLoader:
     """Implements lazy loading for data and components."""
@@ -300,7 +315,14 @@ def cached_result(max_age_hours: int = 24):
             
             # Execute function and cache result
             result = func(*args, **kwargs)
-            performance_manager.save_to_cache(cache_key, result)
+            
+            # Only cache if the result is pickleable
+            if performance_manager.is_pickleable(result):
+                performance_manager.save_to_cache(cache_key, result)
+            else:
+                # Log that we're skipping caching for this result
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Skipping cache for {func.__name__} - result is not pickleable")
             
             return result
         return wrapper
