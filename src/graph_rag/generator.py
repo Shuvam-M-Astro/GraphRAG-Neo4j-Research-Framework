@@ -31,7 +31,9 @@ class GraphRAGGenerator:
         self.llm = ChatOpenAI(
             model=model_name,
             temperature=0.3,
-            max_tokens=2000
+            max_tokens=1500,  # Reduced to avoid context length issues
+            request_timeout=60,  # Increased timeout for rate limiting
+            max_retries=3  # Add retry logic for rate limiting
         )
         
         # Define system prompts for different types of analysis
@@ -112,7 +114,38 @@ class GraphRAGGenerator:
             return response.content
         except Exception as e:
             logger.error(f"Error generating research summary: {e}")
-            return f"Error generating summary: {str(e)}"
+            # Return a fallback summary if generation fails
+            try:
+                # Safely extract keywords to avoid formatting issues
+                all_keywords = []
+                for p in retrieved_papers:
+                    keywords = p.get('keywords', [])
+                    if isinstance(keywords, list):
+                        all_keywords.extend(keywords)
+                
+                unique_keywords = list(set(all_keywords))[:10]
+                keywords_str = ', '.join(unique_keywords) if unique_keywords else 'Various research topics'
+                
+                # Safely get year range
+                years = [p.get('year', 2020) for p in retrieved_papers if p.get('year')]
+                year_range = f"{min(years)} - {max(years)}" if years else "Recent years"
+                
+                return f"""
+                Research Summary for: {query}
+                
+                Based on {len(retrieved_papers)} retrieved papers, here are the key findings:
+                
+                Papers analyzed: {len(retrieved_papers)}
+                Date range: {year_range}
+                
+                Key topics covered: {keywords_str}
+                
+                Note: Detailed AI-generated summary unavailable due to technical constraints. 
+                Please review the individual papers for comprehensive insights.
+                """
+            except Exception as fallback_error:
+                logger.error(f"Error in fallback summary: {fallback_error}")
+                return f"Research Summary for: {query}\n\nBased on {len(retrieved_papers)} retrieved papers. Please review individual papers for detailed insights."
 
     def generate_gap_analysis(self, research_gaps: Dict[str, Any]) -> str:
         """
@@ -526,7 +559,7 @@ class GraphRAGGenerator:
 
     def _prepare_paper_context(self, papers: List[Dict]) -> str:
         """
-        Prepare paper context for LLM input.
+        Prepare paper context for LLM input with token limit management.
         
         Args:
             papers: List of paper dictionaries
@@ -534,6 +567,8 @@ class GraphRAGGenerator:
         Returns:
             Formatted context string
         """
+        # Limit to top 10 papers to avoid context length issues
+        papers = papers[:10]
         context_parts = []
         
         for i, paper in enumerate(papers, 1):
@@ -543,17 +578,30 @@ class GraphRAGGenerator:
             context_part += f"Journal: {paper.get('journal', 'N/A')}\n"
             context_part += f"Citations: {paper.get('citations', 'N/A')}\n"
             
+            # Truncate abstract to avoid token limit issues
             if paper.get('abstract'):
-                context_part += f"Abstract: {paper['abstract']}\n"
+                abstract = paper['abstract']
+                # Limit abstract to ~200 words to stay within token limits
+                if len(abstract.split()) > 200:
+                    abstract = ' '.join(abstract.split()[:200]) + "..."
+                context_part += f"Abstract: {abstract}\n"
             
+            # Limit authors to first 3
             if paper.get('authors'):
-                context_part += f"Authors: {', '.join(paper['authors'])}\n"
+                authors = paper['authors'][:3]
+                if len(paper['authors']) > 3:
+                    authors.append(f"and {len(paper['authors']) - 3} more")
+                context_part += f"Authors: {', '.join(authors)}\n"
             
+            # Limit methods to first 5
             if paper.get('methods'):
-                context_part += f"Methods: {', '.join(paper['methods'])}\n"
+                methods = paper['methods'][:5]
+                context_part += f"Methods: {', '.join(methods)}\n"
             
+            # Limit keywords to first 8
             if paper.get('keywords'):
-                context_part += f"Keywords: {', '.join(paper['keywords'])}\n"
+                keywords = paper['keywords'][:8]
+                context_part += f"Keywords: {', '.join(keywords)}\n"
             
             context_parts.append(context_part)
         
