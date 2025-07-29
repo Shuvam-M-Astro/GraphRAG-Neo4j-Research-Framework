@@ -66,7 +66,14 @@ copy env_example.txt .env
 
 #### 4. Initialize the Database
 ```bash
+# Option A: Use sample data (faster for testing)
 python src/database/init_database.py
+
+# Option B: Scrape real data from ArXiv (recommended for production)
+python run_arxiv_scraper.py
+
+# Option C: Automatic scraping (NEW - recommended)
+# The web app will automatically scrape data when it starts
 ```
 
 #### 5. Run the Web Application
@@ -341,6 +348,8 @@ streamlit run src/app/main.py
 ├── src/
 │   ├── database/           # Neo4j database operations
 │   ├── data_ingestion/     # Data collection and processing
+│   │   ├── arxiv_ingestion.py    # ArXiv API integration
+│   │   └── arxiv_scraper.py      # ArXiv web scraper
 │   ├── graph_rag/          # Graph RAG core components
 │   ├── visualization/      # Graph visualization tools
 │   └── app/               # Streamlit web application
@@ -349,6 +358,105 @@ streamlit run src/app/main.py
 ├── tests/                # Unit tests
 └── docs/                 # Documentation
 ```
+
+## Web Scraping from ArXiv
+
+The framework now includes a powerful web scraper that extracts real research data directly from ArXiv search results pages. This provides access to fresh, comprehensive research data without relying on API rate limits.
+
+### Features
+- **Real-time Data**: Scrapes current ArXiv papers
+- **Comprehensive Coverage**: Access to all ArXiv categories and subjects
+- **Rich Metadata**: Extracts titles, abstracts, authors, categories, dates, PDF URLs
+- **Automatic Processing**: Keyword extraction and relationship creation
+- **Rate Limiting**: Respectful scraping with built-in delays
+- **Error Handling**: Robust error handling and retry mechanisms
+
+### Usage
+
+#### Quick Start
+```bash
+# Run the ArXiv web scraper
+python run_arxiv_scraper.py
+
+# Test the scraper functionality
+python test_arxiv_scraper.py
+```
+
+#### Custom Queries
+```python
+from src.data_ingestion.arxiv_scraper import ArXivWebScraper
+
+scraper = ArXivWebScraper()
+
+# Define your search queries
+queries = ["adhd", "deep learning", "transformer"]
+
+# Scrape and store papers
+stats = scraper.scrape_and_store_papers(queries, max_results_per_query=50)
+print(f"Scraped {stats['successful_stores']} papers successfully")
+```
+
+#### Supported Data Extraction
+- **Paper Information**: Title, abstract, arXiv ID, submission date
+- **Author Information**: Author names and collaboration networks
+- **Categories**: ArXiv subject categories (cs.AI, cs.CV, etc.)
+- **Keywords**: Automatically extracted from titles and abstracts
+- **Methodologies**: Identified research methods and techniques
+- **Relationships**: Citations, collaborations, and keyword connections
+
+### Configuration
+The scraper respects ArXiv's terms of service with:
+- Rate limiting (1 second between requests)
+- User-Agent headers
+- Error handling and retries
+- Respectful crawling practices
+
+### Dynamic Scraping (NEW)
+
+The web application now includes dynamic scraping functionality that scrapes papers on-demand based on your search queries:
+
+#### Features
+- **On-Demand Scraping**: Scrapes ArXiv papers when you search for a topic
+- **Real-time Integration**: New papers are immediately available for analysis
+- **Smart Caching**: Avoids re-scraping the same topics
+- **Manual Controls**: Buttons in sidebar for manual scraping
+- **Status Monitoring**: Real-time display of paper count and scraping progress
+
+#### Usage
+```bash
+# Start the web app
+streamlit run src/app/main.py
+
+# Then search for any topic like:
+# - "adhd"
+# - "machine learning" 
+# - "transformer"
+# - "computer vision"
+# - "deep learning"
+
+# The system will automatically scrape 10 most relevant papers for each topic
+```
+
+The app will:
+1. Load with sample data for initial setup
+2. When you search for a topic, automatically scrape relevant papers from ArXiv
+3. Store the papers in the database with full metadata
+4. Create relationships and indexes for the new papers
+5. Perform GraphRAG analysis on the combined dataset
+
+#### How It Works
+1. **Search**: Enter a research topic in the search bar
+2. **Scrape**: System automatically scrapes ArXiv for relevant papers (limited to 10 papers per topic)
+3. **Store**: Papers are stored with titles, abstracts, authors, categories
+4. **Analyze**: GraphRAG performs analysis on all available papers
+5. **Display**: Results show both existing and newly scraped papers
+
+#### Manual Controls
+In the web app sidebar, you can:
+- **🗑️ Clear Database**: Clear all papers from the database
+- **📊 Manual Scrape**: Manually scrape papers for a specific query
+- **🗑️ Clear Cache**: Clear application cache
+- **🔄 Refresh**: Reload the application
 
 ## Use Cases
 
