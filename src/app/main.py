@@ -13,6 +13,7 @@ import json
 import sys
 import os
 import time
+import logging
 
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -23,6 +24,7 @@ from app.performance import (
     cached_result, show_performance_stats, show_offline_status, create_lazy_dataframe
 )
 from app.lazy_components import lazy_viz, lazy_table, lazy_search, lazy_metrics
+from data_ingestion.arxiv_scraper import ArXivWebScraper
 
 # Page configuration
 st.set_page_config(
@@ -61,6 +63,77 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+
+def scrape_papers_for_query(query: str, max_results: int = 10):
+    """Dynamically scrape papers from ArXiv for a specific query."""
+    try:
+        scraper = ArXivWebScraper()
+        
+        with st.spinner(f"🔍 Scraping ArXiv for '{query}'..."):
+            # Scrape papers for the specific query (limited to 10)
+            papers = scraper.search_papers_web(query, max_results)
+            
+            if papers:
+                st.info(f"📚 Found {len(papers)} papers for '{query}' on ArXiv")
+                
+                # Store papers
+                successful_stores = 0
+                for paper in papers:
+                    if scraper.store_paper(paper):
+                        successful_stores += 1
+                
+                if successful_stores > 0:
+                    st.success(f"✅ Successfully stored {successful_stores} papers for '{query}'!")
+                    
+                    # Create relationships for new papers
+                    with st.spinner("Creating relationships..."):
+                        scraper.create_collaboration_relationships()
+                        scraper.create_citation_relationships()
+                    
+                    return successful_stores
+                else:
+                    st.warning("⚠️ No papers were stored successfully")
+                    return 0
+            else:
+                st.warning(f"⚠️ No papers found for '{query}' on ArXiv")
+                return 0
+        
+        scraper.close()
+        
+    except Exception as e:
+        st.error(f"❌ Failed to scrape papers for '{query}': {e}")
+        return 0
+
+def check_and_populate_database():
+    """Check if database has data and populate with sample data if needed."""
+    try:
+        from database.init_database import Neo4jDatabase
+        
+        db = Neo4jDatabase()
+        db.connect()
+        
+        # Check if we have papers in the database
+        with db.driver.session() as session:
+            result = session.run("MATCH (p:Paper) RETURN count(p) as paper_count")
+            paper_count = result.single()["paper_count"]
+        
+        db.close()
+        
+        if paper_count == 0:
+            st.info("📚 Database is empty. Loading sample data...")
+            
+            # Load sample data for initial setup
+            db = Neo4jDatabase()
+            db.connect()
+            db.create_sample_data()
+            db.close()
+            st.success("✅ Sample data loaded successfully!")
+        else:
+            st.success(f"✅ Database has {paper_count} papers ready for analysis!")
+            
+    except Exception as e:
+        st.error(f"❌ Database initialization failed: {e}")
+        st.info("💡 The system will continue with available data.")
 
 def initialize_orchestrator():
     """Initialize the Graph RAG orchestrator."""
@@ -234,12 +307,15 @@ def run_system_diagnostics():
 def main():
     """Main application function."""
     
+    # Check and populate database if needed
+    check_and_populate_database()
+    
     # Header with performance status
     st.markdown('<h1 class="main-header">🔬 GraphRAG Neo4j Research Framework</h1>', unsafe_allow_html=True)
     st.markdown("### Advanced Research Analysis with Graph-Based Retrieval and Generation")
     
     # Performance status bar
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
         if performance_manager.offline_mode:
             st.warning("🔄 Offline Mode")
@@ -254,6 +330,19 @@ def main():
         st.metric("Cache Hits", performance_manager.cache_stats["hits"])
     with col4:
         st.metric("Cache Misses", performance_manager.cache_stats["misses"])
+    with col5:
+        # Show database status
+        try:
+            from database.init_database import Neo4jDatabase
+            db = Neo4jDatabase()
+            db.connect()
+            with db.driver.session() as session:
+                result = session.run("MATCH (p:Paper) RETURN count(p) as paper_count")
+                paper_count = result.single()["paper_count"]
+            db.close()
+            st.metric("📚 Papers", paper_count)
+        except:
+            st.metric("📚 Papers", "N/A")
     
     # Initialize orchestrator
     orchestrator = initialize_orchestrator()
@@ -280,6 +369,34 @@ def main():
         with col2:
             if st.button("🔄 Refresh"):
                 st.rerun()
+        
+        # Database management
+        st.subheader("🗄️ Database Management")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🗑️ Clear Database"):
+                # Clear database
+                try:
+                    from database.init_database import Neo4jDatabase
+                    db = Neo4jDatabase()
+                    db.connect()
+                    with db.driver.session() as session:
+                        session.run("MATCH (n) DETACH DELETE n")
+                    db.close()
+                    st.success("✅ Database cleared successfully!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Failed to clear database: {e}")
+        with col2:
+            if st.button("📊 Manual Scrape"):
+                # Manual scraping interface
+                manual_query = st.text_input("Enter query to scrape:", key="manual_scrape_query")
+                if manual_query:
+                    scraped_count = scrape_papers_for_query(manual_query, max_results=10)
+                    if scraped_count > 0:
+                        st.success(f"✅ Successfully scraped {scraped_count} papers for '{manual_query}'!")
+                    else:
+                        st.warning(f"⚠️ No papers scraped for '{manual_query}'")
         
         # Cache info
         cache_files = len([f for f in os.listdir(performance_manager.cache_dir) if f.endswith('.pkl')])
@@ -368,6 +485,9 @@ def main():
                         with col4:
                             st.metric("Unique Methods", "Loading...")
                 
+                # First, scrape papers for the query
+                scraped_count = scrape_papers_for_query(query, max_results=20)
+                
                 # Perform actual analysis
                 try:
                     results = orchestrator.analyze_research_topic(query, analysis_type)
@@ -379,7 +499,10 @@ def main():
                         execution_time = time.time() - start_time
                         
                         # Display results with performance info
-                        st.success(f"✅ Analysis completed in {execution_time:.2f}s! Found {len(results['retrieved_papers'])} relevant papers.")
+                        if scraped_count > 0:
+                            st.success(f"✅ Analysis completed in {execution_time:.2f}s! Found {len(results['retrieved_papers'])} relevant papers (including {scraped_count} newly scraped from ArXiv).")
+                        else:
+                            st.success(f"✅ Analysis completed in {execution_time:.2f}s! Found {len(results['retrieved_papers'])} relevant papers.")
                         
                         # Update metrics with lazy loading
                         with metrics_placeholder.container():
