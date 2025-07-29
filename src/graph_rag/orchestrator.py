@@ -46,9 +46,33 @@ class GraphRAGOrchestrator:
             if not retrieved_papers:
                 return {"error": "No relevant papers found for the query"}
             
+            # Convert PaperWithScore objects to dictionaries for the generator
+            paper_dicts = []
+            for paper in retrieved_papers:
+                if hasattr(paper, '__dict__'):
+                    # Convert PaperWithScore object to dictionary
+                    paper_dict = {
+                        'paper_id': getattr(paper, 'paper_id', ''),
+                        'title': getattr(paper, 'title', ''),
+                        'abstract': getattr(paper, 'abstract', ''),
+                        'year': getattr(paper, 'year', 2020),
+                        'journal': getattr(paper, 'journal', ''),
+                        'citations': getattr(paper, 'citations', 0),
+                        'authors': getattr(paper, 'authors', []),
+                        'keywords': getattr(paper, 'keywords', []),
+                        'methods': getattr(paper, 'methods', []),
+                        'vector_score': getattr(paper, 'vector_score', 0.0),
+                        'graph_score': getattr(paper, 'graph_score', 0.0),
+                        'hybrid_score': getattr(paper, 'hybrid_score', 0.0)
+                    }
+                else:
+                    # Already a dictionary
+                    paper_dict = paper
+                paper_dicts.append(paper_dict)
+            
             results = {
                 "query": query,
-                "retrieved_papers": retrieved_papers,
+                "retrieved_papers": paper_dicts,
                 "analysis_type": analysis_type
             }
             
@@ -101,7 +125,13 @@ class GraphRAGOrchestrator:
             
         except Exception as e:
             logger.error(f"Error in research topic analysis: {e}")
-            return {"error": f"Analysis failed: {str(e)}"}
+            # Return a basic result with error information
+            return {
+                "error": f"Analysis failed: {str(e)}",
+                "query": query,
+                "retrieved_papers": retrieved_papers if 'retrieved_papers' in locals() else [],
+                "analysis_type": analysis_type
+            }
 
     def generate_literature_review(self, topic: str, max_papers: int = 20) -> Dict[str, Any]:
         """
@@ -121,11 +151,35 @@ class GraphRAGOrchestrator:
             if not retrieved_papers:
                 return {"error": "No relevant papers found for the topic"}
             
+            # Convert PaperWithScore objects to dictionaries for the generator
+            paper_dicts = []
+            for paper in retrieved_papers:
+                if hasattr(paper, '__dict__'):
+                    # Convert PaperWithScore object to dictionary
+                    paper_dict = {
+                        'paper_id': getattr(paper, 'paper_id', ''),
+                        'title': getattr(paper, 'title', ''),
+                        'abstract': getattr(paper, 'abstract', ''),
+                        'year': getattr(paper, 'year', 2020),
+                        'journal': getattr(paper, 'journal', ''),
+                        'citations': getattr(paper, 'citations', 0),
+                        'authors': getattr(paper, 'authors', []),
+                        'keywords': getattr(paper, 'keywords', []),
+                        'methods': getattr(paper, 'methods', []),
+                        'vector_score': getattr(paper, 'vector_score', 0.0),
+                        'graph_score': getattr(paper, 'graph_score', 0.0),
+                        'hybrid_score': getattr(paper, 'hybrid_score', 0.0)
+                    }
+                else:
+                    # Already a dictionary
+                    paper_dict = paper
+                paper_dicts.append(paper_dict)
+            
             # Generate literature review
-            literature_review = self.generator.generate_literature_review(retrieved_papers, topic)
+            literature_review = self.generator.generate_literature_review(paper_dicts, topic)
             
             # Generate research recommendations
-            recommendations = self.generator.generate_research_recommendations(retrieved_papers, topic)
+            recommendations = self.generator.generate_research_recommendations(paper_dicts, topic)
             
             return {
                 "topic": topic,
@@ -163,11 +217,30 @@ class GraphRAGOrchestrator:
             # Get related papers for context
             related_papers = self.retriever.hybrid_search(topic, alpha=0.5, limit=10)
             
+            # Convert related papers to dictionaries
+            related_paper_dicts = []
+            for paper in related_papers:
+                if hasattr(paper, '__dict__'):
+                    paper_dict = {
+                        'paper_id': getattr(paper, 'paper_id', ''),
+                        'title': getattr(paper, 'title', ''),
+                        'abstract': getattr(paper, 'abstract', ''),
+                        'year': getattr(paper, 'year', 2020),
+                        'journal': getattr(paper, 'journal', ''),
+                        'citations': getattr(paper, 'citations', 0),
+                        'authors': getattr(paper, 'authors', []),
+                        'keywords': getattr(paper, 'keywords', []),
+                        'methods': getattr(paper, 'methods', [])
+                    }
+                else:
+                    paper_dict = paper
+                related_paper_dicts.append(paper_dict)
+            
             return {
                 "topic": topic,
                 "gap_analysis": gap_analysis,
                 "gap_data": gaps_data,
-                "related_papers": related_papers
+                "related_papers": related_paper_dicts
             }
             
         except Exception as e:
