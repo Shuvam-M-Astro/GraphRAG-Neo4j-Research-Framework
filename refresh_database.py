@@ -17,6 +17,7 @@ if src_dir not in sys.path:
 
 from database.init_database import Neo4jDatabase
 from graph_rag.graph_retriever import GraphRetriever
+from data_ingestion.arxiv_scraper import ArXivWebScraper
 
 # Load environment variables
 load_dotenv()
@@ -47,15 +48,41 @@ def clear_database():
         return False
 
 def recreate_database():
-    """Recreate the database with new sample data."""
+    """Recreate the database with scraped ArXiv data."""
     try:
-        logger.info("Recreating database with diverse sample data...")
+        logger.info("Recreating database with scraped ArXiv data...")
         db = Neo4jDatabase()
         db.connect()
         db.create_constraints_and_indexes()
-        db.create_sample_data()
+        
+        # Use web scraper to get real data
+        scraper = ArXivWebScraper()
+        
+        # Define queries to scrape
+        queries = [
+            "adhd",
+            "attention deficit hyperactivity disorder", 
+            "deep learning",
+            "graph neural networks",
+            "transformer architecture",
+            "computer vision",
+            "natural language processing",
+            "machine learning",
+            "neural networks",
+            "attention mechanism"
+        ]
+        
+        # Scrape and store papers
+        stats = scraper.scrape_and_store_papers(queries, max_results_per_query=10)
+        logger.info(f"✅ Scraped {stats['successful_stores']} papers successfully")
+        
+        # Create relationships
+        scraper.create_collaboration_relationships()
+        scraper.create_citation_relationships()
+        
+        scraper.close()
         db.close()
-        logger.info("✅ Database recreated successfully")
+        logger.info("✅ Database recreated successfully with real ArXiv data")
         return True
     except Exception as e:
         logger.error(f"❌ Failed to recreate database: {e}")
@@ -114,17 +141,17 @@ def main():
     logger.info("=" * 50)
     logger.info("🎉 Database Refresh Completed Successfully!")
     logger.info("")
-    logger.info("New diverse sample data includes:")
-    logger.info("• 3 Machine Learning papers")
-    logger.info("• 3 ADHD research papers")
-    logger.info("• 2 Psychology papers")
-    logger.info("• 2 Medical research papers")
+    logger.info("New scraped ArXiv data includes:")
+    logger.info("• Real ADHD research papers from arXiv")
+    logger.info("• Machine learning and AI papers")
+    logger.info("• Computer vision and NLP papers")
+    logger.info("• Neural network and transformer papers")
     logger.info("")
     logger.info("Now you can search for topics like:")
-    logger.info("• 'adhd' - will find ADHD research papers")
-    logger.info("• 'depression' - will find psychology papers")
-    logger.info("• 'covid' - will find medical research")
+    logger.info("• 'adhd' - will find real ADHD research papers")
     logger.info("• 'deep learning' - will find ML papers")
+    logger.info("• 'transformer' - will find transformer architecture papers")
+    logger.info("• 'computer vision' - will find CV papers")
     logger.info("")
     logger.info("Try searching again in the web app!")
     
