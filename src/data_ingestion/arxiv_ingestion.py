@@ -461,6 +461,8 @@ def main():
     """Main function for ArXiv ingestion."""
     # Example queries for scientific research
     queries = [
+        "adhd",
+        "attention deficit hyperactivity disorder",
         "deep learning",
         "graph neural networks",
         "transformer architecture",
@@ -468,9 +470,7 @@ def main():
         "natural language processing",
         "machine learning",
         "neural networks",
-        "attention mechanism",
-        "reinforcement learning",
-        "optimization algorithms"
+        "attention mechanism"
     ]
     
     ingestion = ArXivIngestion()
