@@ -1,3 +1,0 @@
-[console_scripts]
-graph-rag-ingest = src.data_ingestion.arxiv_ingestion:main
-graph-rag-init = src.database.init_database:main
