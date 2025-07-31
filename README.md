@@ -1,7 +1,7 @@
 # GraphRAG Neo4j Research Framework
 
 A comprehensive research framework for building Graph-based Retrieval-Augmented Generation (GraphRAG) systems using Neo4j as the knowledge graph backend.
-
+![Demo](images/1.png)
 ## 🚀 Features
 
 - **Graph-based RAG**: Leverage Neo4j's graph database for enhanced retrieval
