@@ -1,0 +1,230 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "graphrag-neo4j-research-framework"
+version = "0.1.0"
+description = "A comprehensive research framework for building Graph-based Retrieval-Augmented Generation (GraphRAG) systems using Neo4j"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "GraphRAG Research Team", email = "contact@graphrag-research.org"}
+]
+maintainers = [
+    {name = "GraphRAG Research Team", email = "contact@graphrag-research.org"}
+]
+keywords = ["graph-rag", "neo4j", "research", "machine-learning", "knowledge-graph", "arxiv"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Topic :: Database",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+requires-python = ">=3.8"
+dependencies = [
+    "neo4j>=5.0.0",
+    "streamlit>=1.28.0",
+    "pandas>=1.5.0",
+    "numpy>=1.21.0",
+    "requests>=2.28.0",
+    "beautifulsoup4>=4.11.0",
+    "arxiv>=2.0.0",
+    "scholarly>=1.7.0",
+    "networkx>=2.8.0",
+    "matplotlib>=3.5.0",
+    "seaborn>=0.11.0",
+    "plotly>=5.0.0",
+    "scikit-learn>=1.1.0",
+    "sentence-transformers>=2.2.0",
+    "faiss-cpu>=1.7.0",
+    "langchain>=0.0.300",
+    "langchain-openai>=0.0.1",
+    "langchain-community>=0.0.1",
+    "openai>=1.0.0",
+    "transformers>=4.20.0",
+    "torch>=1.12.0",
+    "tiktoken>=0.4.0",
+    "py2neo>=2021.2.0",
+    "mypy>=1.0.0",
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=22.0.0",
+    "isort>=5.10.0",
+    "flake8>=5.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=22.0.0",
+    "isort>=5.10.0",
+    "flake8>=5.0.0",
+    "mypy>=1.0.0",
+    "pre-commit>=2.20.0",
+]
+gpu = [
+    "faiss-gpu>=1.7.0",
+    "torch>=1.12.0+cu116",
+]
+docs = [
+    "sphinx>=5.0.0",
+    "sphinx-rtd-theme>=1.0.0",
+    "myst-parser>=0.18.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/your-username/GraphRAG-Neo4j-Research-Framework"
+Documentation = "https://github.com/your-username/GraphRAG-Neo4j-Research-Framework/tree/main/docs"
+Repository = "https://github.com/your-username/GraphRAG-Neo4j-Research-Framework"
+"Bug Tracker" = "https://github.com/your-username/GraphRAG-Neo4j-Research-Framework/issues"
+
+[project.scripts]
+graphrag-scraper = "scripts.arxiv_scraper:main"
+graphrag-setup = "scripts.system_setup:main"
+graphrag-viewer = "scripts.database_viewer:main"
+graphrag-visualizer = "scripts.graph_visualizer:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"*" = ["*.txt", "*.md", "*.yml", "*.yaml"]
+
+[tool.black]
+line-length = 88
+target-version = ['py38']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+line_length = 88
+known_first_party = ["src"]
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = [
+    "neo4j.*",
+    "streamlit.*",
+    "pandas.*",
+    "numpy.*",
+    "requests.*",
+    "beautifulsoup4.*",
+    "arxiv.*",
+    "scholarly.*",
+    "networkx.*",
+    "matplotlib.*",
+    "seaborn.*",
+    "plotly.*",
+    "scikit-learn.*",
+    "sentence_transformers.*",
+    "faiss.*",
+    "langchain.*",
+    "langchain_openai.*",
+    "langchain_community.*",
+    "openai.*",
+    "transformers.*",
+    "torch.*",
+    "tiktoken.*",
+    "py2neo.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q --strict-markers --strict-config"
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "*/tests/*",
+    "*/test_*",
+    "*/__pycache__/*",
+    "*/migrations/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
+
+[tool.pre-commit]
+repos = [
+    {
+        repo = "https://github.com/pre-commit/pre-commit-hooks",
+        rev = "v4.4.0",
+        hooks = [
+            {id = "trailing-whitespace"},
+            {id = "end-of-file-fixer"},
+            {id = "check-yaml"},
+            {id = "check-added-large-files"},
+        ],
+    },
+    {
+        repo = "https://github.com/psf/black",
+        rev = "23.3.0",
+        hooks = [{id = "black"}],
+    },
+    {
+        repo = "https://github.com/pycqa/isort",
+        rev = "5.12.0",
+        hooks = [{id = "isort"}],
+    },
+    {
+        repo = "https://github.com/pycqa/flake8",
+        rev = "6.0.0",
+        hooks = [{id = "flake8"}],
+    },
+] 
