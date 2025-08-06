@@ -707,4 +707,160 @@ class GraphRAGOrchestrator:
     def close(self):
         """Close database connections."""
         if self.retriever:
-            self.retriever.close() 
+            self.retriever.close()
+    
+    def _estimate_query_complexity(self, query: str) -> float:
+        """
+        Estimate the complexity of a query for adaptive processing.
+        
+        Args:
+            query: Research query
+            
+        Returns:
+            Complexity score between 0 and 1
+        """
+        complexity = 0.0
+        
+        # Check query length
+        if len(query) > 100:
+            complexity += 0.3
+        
+        # Check for complex terms
+        complex_terms = ['methodology', 'evolution', 'collaboration', 'network', 'temporal', 'cross-domain']
+        for term in complex_terms:
+            if term.lower() in query.lower():
+                complexity += 0.2
+        
+        # Check for multiple concepts
+        if query.count('and') > 0 or query.count('or') > 0:
+            complexity += 0.2
+        
+        return min(1.0, complexity)
+    
+    def _retrieve_with_timeout(self, query: str, max_papers: int, timeout_seconds: int) -> List[Dict]:
+        """
+        Retrieve papers with timeout protection.
+        
+        Args:
+            query: Research query
+            max_papers: Maximum number of papers
+            timeout_seconds: Timeout in seconds
+            
+        Returns:
+            List of retrieved papers
+        """
+        import signal
+        
+        def timeout_handler(signum, frame):
+            raise TimeoutError("Retrieval operation timed out")
+        
+        try:
+            # Set timeout
+            signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(timeout_seconds)
+            
+            # Perform retrieval
+            retrieved_papers = self.retriever.graph_search(query, limit=max_papers)
+            
+            # Clear timeout
+            signal.alarm(0)
+            
+            return retrieved_papers
+            
+        except TimeoutError:
+            logger.warning(f"Retrieval timed out after {timeout_seconds}s, using fallback")
+            return self._fallback_retrieval(query, max_papers)
+        except Exception as e:
+            logger.error(f"Retrieval failed: {e}")
+            return self._fallback_retrieval(query, max_papers)
+    
+    def _fallback_retrieval(self, query: str, max_papers: int) -> List[Dict]:
+        """
+        Fallback retrieval method when primary retrieval fails.
+        
+        Args:
+            query: Research query
+            max_papers: Maximum number of papers
+            
+        Returns:
+            List of papers from fallback method
+        """
+        try:
+            # Try simple keyword search
+            with self.retriever.driver.session() as session:
+                result = session.run("""
+                    MATCH (p:Paper)
+                    WHERE toLower(p.title) CONTAINS toLower($query) 
+                       OR toLower(p.abstract) CONTAINS toLower($query)
+                    RETURN p.paper_id as paper_id, p.title as title, p.abstract as abstract,
+                           p.year as year, p.journal as journal, p.citations as citations
+                    ORDER BY p.citations DESC
+                    LIMIT $limit
+                """, {"query": query, "limit": max_papers})
+                
+                papers = []
+                for record in result:
+                    papers.append({
+                        "paper_id": record["paper_id"],
+                        "title": record["title"],
+                        "abstract": record["abstract"],
+                        "year": record["year"],
+                        "journal": record["journal"],
+                        "citations": record["citations"],
+                        "keywords": [],
+                        "authors": [],
+                        "methods": []
+                    })
+                
+                return papers
+                
+        except Exception as e:
+            logger.error(f"Fallback retrieval failed: {e}")
+            return []
+    
+    def _generate_fallback_response(self, query: str) -> Dict[str, Any]:
+        """
+        Generate a fallback response when no papers are found.
+        
+        Args:
+            query: Research query
+            
+        Returns:
+            Fallback response dictionary
+        """
+        return {
+            "query": query,
+            "retrieved_papers": [],
+            "summary": f"No relevant papers found for: {query}\n\nPlease try:\n1. Using different keywords\n2. Broadening your search terms\n3. Checking the database for available papers",
+            "timestamp": time.time(),
+            "performance_metrics": {
+                "query_time": 0,
+                "memory_usage_mb": None,
+                "papers_retrieved": 0,
+                "query_complexity": 0.0
+            }
+        }
+    
+    def _generate_error_response(self, query: str, error_message: str) -> Dict[str, Any]:
+        """
+        Generate an error response when query fails.
+        
+        Args:
+            query: Research query
+            error_message: Error message
+            
+        Returns:
+            Error response dictionary
+        """
+        return {
+            "query": query,
+            "retrieved_papers": [],
+            "summary": f"Error processing query: {error_message}\n\nPlease try again or contact support if the issue persists.",
+            "timestamp": time.time(),
+            "performance_metrics": {
+                "query_time": 0,
+                "memory_usage_mb": None,
+                "papers_retrieved": 0,
+                "query_complexity": 0.0
+            }
+        } 
