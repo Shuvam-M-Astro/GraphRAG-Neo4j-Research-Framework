@@ -139,26 +139,55 @@ def initialize_orchestrator():
     """Initialize the Graph RAG orchestrator."""
     try:
         with st.spinner("Initializing GraphRAG orchestrator..."):
+            # CHALLENGE FIX 1: Add performance monitoring
+            start_time = time.time()
+            
             orchestrator = GraphRAGOrchestrator()
-            st.success("✅ Orchestrator initialized successfully!")
+            
+            init_time = time.time() - start_time
+            st.success(f"✅ Orchestrator initialized successfully! ({init_time:.2f}s)")
+            
+            # CHALLENGE FIX 2: Monitor system resources
+            try:
+                import psutil
+                memory_usage = psutil.virtual_memory().percent
+                cpu_usage = psutil.cpu_percent()
+                
+                if memory_usage > 80:
+                    st.warning(f"⚠️ High memory usage: {memory_usage:.1f}%")
+                if cpu_usage > 80:
+                    st.warning(f"⚠️ High CPU usage: {cpu_usage:.1f}%")
+                    
+            except ImportError:
+                pass  # psutil not available
+            
             return orchestrator
     except Exception as e:
         st.error(f"❌ Failed to initialize orchestrator: {e}")
         
-        # Provide helpful error messages for common issues
+        # CHALLENGE FIX 3: Enhanced error handling with specific solutions
         if "meta tensor" in str(e).lower():
             st.info("💡 **Meta tensor error detected.** This is a known issue with newer PyTorch versions.")
             st.info("The system will attempt to use CPU-only initialization as a fallback.")
+            st.info("**Solution:** Try running `python tools/downgrade_pytorch.py`")
         elif "embedding model" in str(e).lower():
             st.info("💡 **Embedding model error detected.** This might be due to:")
             st.info("• Missing model files (check internet connection)")
             st.info("• PyTorch version compatibility issues")
             st.info("• Insufficient memory for model loading")
+            st.info("**Solution:** Try running `python tools/fix_pytorch_version.py`")
         elif "database" in str(e).lower():
             st.info("💡 **Database connection error detected.** Please check:")
             st.info("• Neo4j database is running")
             st.info("• Database credentials in .env file")
             st.info("• Network connectivity to database")
+            st.info("**Solution:** Run `python scripts/system_setup.py` to verify database connection")
+        elif "rate limit" in str(e).lower():
+            st.info("💡 **Rate limit error detected.** This is due to API usage limits.")
+            st.info("**Solution:** Wait a few minutes and try again, or check your API quota")
+        elif "memory" in str(e).lower():
+            st.info("💡 **Memory error detected.** The system needs more memory.")
+            st.info("**Solution:** Close other applications or restart the system")
         
         return None
 
