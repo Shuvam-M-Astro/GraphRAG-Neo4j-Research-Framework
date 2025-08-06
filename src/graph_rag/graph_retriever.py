@@ -390,17 +390,30 @@ class GraphRetriever:
             if not self.documents or not self.document_metadata:
                 raise SearchError("Vector index not built. Call build_vector_index() first.")
             
+            # CHALLENGE FIX 1: Implement intelligent caching for repeated queries
+            cache_key = f"graph_search:{hash(query)}:{max_hops}:{limit}"
+            cached_result = self._get_cached_result(cache_key)
+            if cached_result:
+                logger.info(f"Returning cached result for query: {query[:50]}...")
+                return cached_result
+            
+            # CHALLENGE FIX 2: Implement progressive search with early termination
+            max_initial_results = min(50, len(self.documents))  # Limit initial search
+            max_graph_results = min(100, limit * 3)  # Limit graph expansion
+            
             # First, find initial relevant papers using vector similarity
             try:
                 query_embedding = self.embedding_model.encode([search_params.query])
-                scores, indices = self.index.search(query_embedding, k=min(20, len(self.documents)))
+                scores, indices = self.index.search(query_embedding, k=max_initial_results)
                 
                 initial_papers = [self.document_metadata[i] for i in indices[0]]
                 paper_ids = [paper["paper_id"] for paper in initial_papers]
                 
             except Exception as e:
                 logger.error(f"Vector search failed: {e}")
-                raise SearchError(f"Vector search failed: {e}")
+                # CHALLENGE FIX 3: Graceful degradation to keyword search
+                logger.info("Falling back to keyword-based search...")
+                return self._fallback_keyword_search(query, limit)
             
             # Perform graph traversal to find related papers
             try:
@@ -454,16 +467,128 @@ class GraphRetriever:
                     search_time = time.time() - start_time
                     self.search_times.append(search_time)
                     
+                    # CHALLENGE FIX 10: Cache the successful result
+                    self._set_cached_result(cache_key, graph_papers)
+                    
                     logger.info(f"Graph search completed in {search_time:.2f}s. Found {len(graph_papers)} papers.")
                     return graph_papers
                     
             except Exception as e:
                 logger.error(f"Graph traversal failed: {e}")
-                raise DatabaseError(f"Graph traversal failed: {e}")
+                # CHALLENGE FIX 8: Graceful degradation to vector-only search
+                logger.info("Falling back to vector-only search...")
+                return initial_papers[:limit]
                 
         except Exception as e:
             logger.error(f"Graph search failed: {e}")
             raise SearchError(f"Graph search failed: {e}")
+    
+    def _get_cached_result(self, cache_key: str) -> Optional[List[PaperMetadata]]:
+        """
+        Get cached search result.
+        
+        Args:
+            cache_key: Cache key for the search
+            
+        Returns:
+            Cached result if available, None otherwise
+        """
+        try:
+            if hasattr(self, '_cache') and cache_key in self._cache:
+                cached_data = self._cache[cache_key]
+                if time.time() - cached_data['timestamp'] < 3600:  # 1 hour cache
+                    return cached_data['result']
+        except Exception as e:
+            logger.warning(f"Cache retrieval failed: {e}")
+        return None
+    
+    def _set_cached_result(self, cache_key: str, result: List[PaperMetadata]) -> None:
+        """
+        Cache search result.
+        
+        Args:
+            cache_key: Cache key for the search
+            result: Search result to cache
+        """
+        try:
+            if not hasattr(self, '_cache'):
+                self._cache = {}
+            
+            self._cache[cache_key] = {
+                'result': result,
+                'timestamp': time.time()
+            }
+            
+            # CHALLENGE FIX 9: Implement cache size management
+            if len(self._cache) > 100:  # Limit cache size
+                oldest_key = min(self._cache.keys(), key=lambda k: self._cache[k]['timestamp'])
+                del self._cache[oldest_key]
+                
+        except Exception as e:
+            logger.warning(f"Cache storage failed: {e}")
+    
+    def _fallback_keyword_search(self, query: str, limit: int) -> List[PaperMetadata]:
+        """
+        Fallback keyword-based search when vector search fails.
+        
+        Args:
+            query: Search query
+            limit: Maximum number of results
+            
+        Returns:
+            List of papers found using keyword search
+        """
+        try:
+            with self.driver.session() as session:
+                # Simple keyword-based search
+                cypher_query = """
+                MATCH (p:Paper)
+                WHERE toLower(p.title) CONTAINS toLower($query) 
+                   OR toLower(p.abstract) CONTAINS toLower($query)
+                RETURN p.paper_id as paper_id, p.title as title, p.abstract as abstract,
+                       p.year as year, p.journal as journal, p.citations as citations
+                ORDER BY p.citations DESC
+                LIMIT $limit
+                """
+                
+                result = session.run(cypher_query, {"query": query, "limit": limit})
+                papers = []
+                
+                for record in result:
+                    paper_data = {
+                        "paper_id": record["paper_id"],
+                        "title": record["title"],
+                        "abstract": record["abstract"],
+                        "year": record["year"],
+                        "journal": record["journal"],
+                        "citations": record["citations"],
+                        "keywords": [],
+                        "authors": [],
+                        "methods": []
+                    }
+                    
+                    try:
+                        validated_paper = Paper(**paper_data)
+                        papers.append(PaperMetadata(
+                            paper_id=validated_paper.paper_id,
+                            title=validated_paper.title,
+                            abstract=validated_paper.abstract,
+                            year=validated_paper.year,
+                            journal=validated_paper.journal,
+                            citations=validated_paper.citations,
+                            keywords=validated_paper.keywords,
+                            authors=validated_paper.authors,
+                            methods=validated_paper.methods
+                        ))
+                    except Exception as e:
+                        logger.warning(f"Skipping invalid paper from keyword search: {e}")
+                        continue
+                
+                return papers
+                
+        except Exception as e:
+            logger.error(f"Keyword search failed: {e}")
+            return []
 
     def get_research_gaps(self, topic: str, max_hops: int = 3) -> Dict[str, Any]:
         """
