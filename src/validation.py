@@ -79,7 +79,42 @@ def validate_environment_variables() -> Dict[str, str]:
 
 def validate_paper_data(data: Dict[str, Any]) -> Paper:
     """Validate paper data using Pydantic model."""
-    return Paper(**data)
+    try:
+        # CHALLENGE FIX 1: Enhanced data quality validation
+        if not data.get('paper_id'):
+            raise ValidationError("Paper ID is required")
+        
+        if not data.get('title'):
+            raise ValidationError("Paper title is required")
+        
+        # CHALLENGE FIX 2: Sanitize and clean data
+        if 'abstract' in data and data['abstract']:
+            # Remove excessive whitespace and normalize
+            data['abstract'] = ' '.join(data['abstract'].split())
+            if len(data['abstract']) < 10:
+                raise ValidationError("Abstract must be at least 10 characters long")
+        
+        # CHALLENGE FIX 3: Validate year range
+        if 'year' in data:
+            current_year = datetime.now().year
+            if not (1900 <= data['year'] <= current_year + 1):
+                raise ValidationError(f"Year must be between 1900 and {current_year + 1}")
+        
+        # CHALLENGE FIX 4: Validate citations
+        if 'citations' in data and data['citations'] < 0:
+            data['citations'] = 0
+        
+        # CHALLENGE FIX 5: Clean and validate lists
+        for field in ['authors', 'keywords', 'methods']:
+            if field in data and data[field]:
+                if not isinstance(data[field], list):
+                    data[field] = []
+                # Remove empty strings and normalize
+                data[field] = [str(item).strip() for item in data[field] if str(item).strip()]
+        
+        return Paper(**data)
+    except Exception as e:
+        raise ValidationError(f"Paper validation failed: {e}")
 
 def validate_search_params(query: str, max_results: int = 100, max_hops: int = 2, limit: int = 10) -> SearchQuery:
     """Validate search parameters using Pydantic model."""
