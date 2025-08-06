@@ -88,6 +88,21 @@ class GraphRAGGenerator:
         Returns:
             Generated research summary
         """
+        # CHALLENGE FIX 1: Implement context length management
+        max_papers_for_context = 15  # Limit papers to avoid token overflow
+        if len(retrieved_papers) > max_papers_for_context:
+            # Sort by relevance and take top papers
+            sorted_papers = sorted(retrieved_papers, 
+                                 key=lambda x: x.get('citations', 0) + x.get('hop_count', 0), 
+                                 reverse=True)
+            retrieved_papers = sorted_papers[:max_papers_for_context]
+            logger.info(f"Limited context to {max_papers_for_context} papers to manage token length")
+        
+        # CHALLENGE FIX 2: Truncate abstracts to save tokens
+        for paper in retrieved_papers:
+            if 'abstract' in paper and len(paper['abstract']) > 500:
+                paper['abstract'] = paper['abstract'][:500] + "..."
+        
         # Prepare context from retrieved papers
         context = self._prepare_paper_context(retrieved_papers)
         
@@ -109,11 +124,45 @@ class GraphRAGGenerator:
             """)
         ])
         
-        try:
-            response = self.llm.invoke(prompt.format_messages())
-            return response.content
-        except Exception as e:
-            logger.error(f"Error generating research summary: {e}")
+        # CHALLENGE FIX 3: Implement rate limiting and retry logic
+        max_retries = 3
+        retry_delay = 2
+        
+        for attempt in range(max_retries):
+            try:
+                response = self.llm.invoke(prompt.format_messages())
+                return response.content
+            except Exception as e:
+                logger.error(f"Error generating research summary (attempt {attempt + 1}): {e}")
+                
+                # CHALLENGE FIX 4: Handle specific error types
+                if "rate limit" in str(e).lower() or "quota" in str(e).lower():
+                    if attempt < max_retries - 1:
+                        logger.info(f"Rate limit hit, waiting {retry_delay}s before retry...")
+                        time.sleep(retry_delay)
+                        retry_delay *= 2  # Exponential backoff
+                        continue
+                elif "context length" in str(e).lower() or "token" in str(e).lower():
+                    # CHALLENGE FIX 5: Handle context length errors by reducing context
+                    logger.warning("Context length exceeded, reducing context...")
+                    if len(retrieved_papers) > 5:
+                        retrieved_papers = retrieved_papers[:5]
+                        context = self._prepare_paper_context(retrieved_papers)
+                        prompt = ChatPromptTemplate.from_messages([
+                            ("system", self.system_prompts["research_summary"]),
+                            ("human", f"""
+                            Research Query: {query}
+                            
+                            Retrieved Papers Context (reduced):
+                            {context}
+                            
+                            Please provide a concise research summary.
+                            """)
+                        ])
+                        continue
+                
+                if attempt == max_retries - 1:
+                    break
             # Return a fallback summary if generation fails
             try:
                 # Safely extract keywords to avoid formatting issues
