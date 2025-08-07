@@ -33,7 +33,7 @@ from validation import (
 # Import from our custom types module
 from custom_types import (
     PaperId, PaperMetadata, PaperWithScore, SearchScore, SearchResult,
-    EmbeddingVector, EmbeddingMatrix, Neo4jResult, ValidationError,
+    EmbeddingVector, EmbeddingMatrix, Neo4jResult,
     DatabaseError, SearchError, ModelError, is_paper_metadata
 )
 
@@ -483,6 +483,61 @@ class GraphRetriever:
             logger.error(f"Graph search failed: {e}")
             raise SearchError(f"Graph search failed: {e}")
     
+    def _retrieve_with_timeout(self, query: str, max_papers: int, timeout_seconds: int = 30) -> List[PaperMetadata]:
+        """
+        Retrieve papers with timeout protection.
+        
+        Args:
+            query: Research query
+            max_papers: Maximum number of papers
+            timeout_seconds: Timeout in seconds
+            
+        Returns:
+            List of retrieved papers
+        """
+        import signal
+        
+        def timeout_handler(signum, frame):
+            raise TimeoutError("Retrieval operation timed out")
+        
+        try:
+            # Set timeout
+            signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(timeout_seconds)
+            
+            # Perform retrieval
+            retrieved_papers = self.graph_search(query, limit=max_papers)
+            
+            # Clear timeout
+            signal.alarm(0)
+            
+            return retrieved_papers
+            
+        except TimeoutError:
+            logger.warning(f"Retrieval timed out after {timeout_seconds}s, using fallback")
+            return self._fallback_retrieval(query, max_papers)
+        except Exception as e:
+            logger.error(f"Retrieval failed: {e}")
+            return self._fallback_retrieval(query, max_papers)
+
+    def _fallback_retrieval(self, query: str, max_papers: int) -> List[PaperMetadata]:
+        """
+        Fallback retrieval method when primary search fails.
+        
+        Args:
+            query: Research query
+            max_papers: Maximum number of papers
+            
+        Returns:
+            List of papers from fallback search
+        """
+        try:
+            # Use simple keyword search as fallback
+            return self._fallback_keyword_search(query, max_papers)
+        except Exception as e:
+            logger.error(f"Fallback retrieval also failed: {e}")
+            return []
+
     def _get_cached_result(self, cache_key: str) -> Optional[List[PaperMetadata]]:
         """
         Get cached search result.
@@ -685,25 +740,30 @@ class GraphRetriever:
         Returns:
             Evolution data for the methodology
         """
-        with self.driver.session() as session:
-            result = session.run("""
-                MATCH (p:Paper)-[:USES_METHOD]->(m:Method {name: $method_name})
-                OPTIONAL MATCH (p)-[:HAS_KEYWORD]->(k:Keyword)
-                RETURN p.year as year, p.title as title, p.journal as journal,
-                       collect(DISTINCT k.text) as keywords
-                ORDER BY p.year
-            """, {"method_name": method_name})
-            
-            evolution = []
-            for record in result:
-                evolution.append({
-                    "year": record["year"],
-                    "title": record["title"],
-                    "journal": record["journal"],
-                    "keywords": record["keywords"]
-                })
-            
-            return {"method": method_name, "evolution": evolution}
+        try:
+            with self.driver.session() as session:
+                result = session.run("""
+                    MATCH (p:Paper)-[:USES_METHOD]->(m:Method {name: $method_name})
+                    OPTIONAL MATCH (p)-[:HAS_KEYWORD]->(k:Keyword)
+                    RETURN p.year as year, p.title as title, p.journal as journal,
+                           collect(DISTINCT k.text) as keywords
+                    ORDER BY p.year
+                """, {"method_name": method_name})
+                
+                evolution = []
+                for record in result:
+                    evolution.append({
+                        "year": record["year"],
+                        "title": record["title"],
+                        "journal": record["journal"],
+                        "keywords": record["keywords"]
+                    })
+                
+                return {"method": method_name, "evolution": evolution}
+                
+        except Exception as e:
+            logger.error(f"Methodology evolution analysis failed: {e}")
+            raise SearchError(f"Methodology evolution analysis failed: {e}")
 
     def hybrid_search(self, query: str, alpha: float = 0.7, limit: int = 10) -> List[PaperWithScore]:
         """
@@ -1694,3 +1754,208 @@ class GraphRetriever:
         except Exception as e:
             logger.error(f"Entity search failed: {e}")
             raise SearchError(f"Entity search failed: {e}") 
+
+    def _estimate_query_complexity(self, query: str) -> float:
+        """
+        Estimate the complexity of a search query to optimize search parameters.
+        
+        Args:
+            query: Search query
+            
+        Returns:
+            Complexity score (0.0-1.0)
+        """
+        try:
+            # Simple complexity estimation based on query characteristics
+            complexity = 0.0
+            
+            # Length factor
+            complexity += min(len(query.split()) / 10.0, 0.3)
+            
+            # Technical terms factor
+            technical_terms = ['algorithm', 'method', 'technique', 'approach', 'framework', 
+                             'model', 'system', 'architecture', 'protocol', 'paradigm']
+            tech_count = sum(1 for term in technical_terms if term.lower() in query.lower())
+            complexity += min(tech_count * 0.1, 0.3)
+            
+            # Domain-specific terms
+            domain_terms = ['quantum', 'neural', 'deep', 'machine', 'learning', 'artificial',
+                           'intelligence', 'graph', 'network', 'optimization', 'analysis']
+            domain_count = sum(1 for term in domain_terms if term.lower() in query.lower())
+            complexity += min(domain_count * 0.05, 0.2)
+            
+            # Special characters and numbers
+            special_chars = sum(1 for char in query if char in '()[]{}<>+-*/=')
+            complexity += min(special_chars * 0.02, 0.2)
+            
+            return min(complexity, 1.0)
+            
+        except Exception as e:
+            logger.warning(f"Query complexity estimation failed: {e}")
+            return 0.5  # Default to medium complexity
+
+    def _optimize_search_parameters(self, query: str) -> Dict[str, Any]:
+        """
+        Optimize search parameters based on query complexity.
+        
+        Args:
+            query: Search query
+            
+        Returns:
+            Optimized search parameters
+        """
+        complexity = self._estimate_query_complexity(query)
+        
+        if complexity < 0.3:
+            # Simple query - use basic search
+            return {
+                "max_hops": 1,
+                "limit": 10,
+                "alpha": 0.8,  # Favor vector search
+                "timeout": 15
+            }
+        elif complexity < 0.7:
+            # Medium complexity - balanced search
+            return {
+                "max_hops": 2,
+                "limit": 15,
+                "alpha": 0.6,
+                "timeout": 30
+            }
+        else:
+            # Complex query - deep search
+            return {
+                "max_hops": 3,
+                "limit": 20,
+                "alpha": 0.4,  # Favor graph search
+                "timeout": 45
+            } 
+
+    def batch_search(self, queries: List[str], search_type: str = "hybrid", **kwargs) -> Dict[str, List[PaperWithScore]]:
+        """
+        Perform batch search for multiple queries efficiently.
+        
+        Args:
+            queries: List of search queries
+            search_type: Type of search ("graph", "hybrid", "temporal", "entity")
+            **kwargs: Additional parameters for search
+            
+        Returns:
+            Dictionary mapping queries to their results
+        """
+        try:
+            results = {}
+            
+            # Optimize parameters for each query
+            for query in queries:
+                optimized_params = self._optimize_search_parameters(query)
+                optimized_params.update(kwargs)
+                
+                try:
+                    if search_type == "graph":
+                        query_results = self.graph_search(query, **optimized_params)
+                    elif search_type == "hybrid":
+                        query_results = self.hybrid_search(query, **optimized_params)
+                    elif search_type == "temporal":
+                        query_results = self.temporal_graph_search(query, **optimized_params)
+                    elif search_type == "entity":
+                        query_results = self.entity_centric_search(query, **optimized_params)
+                    else:
+                        query_results = self.advanced_search(query, search_type, **optimized_params)
+                    
+                    results[query] = query_results
+                    
+                except Exception as e:
+                    logger.warning(f"Batch search failed for query '{query}': {e}")
+                    results[query] = []
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"Batch search failed: {e}")
+            raise SearchError(f"Batch search failed: {e}")
+
+    def get_search_statistics(self) -> Dict[str, Any]:
+        """
+        Get comprehensive search statistics and performance metrics.
+        
+        Returns:
+            Dictionary containing search statistics
+        """
+        try:
+            stats = self.get_performance_stats()
+            
+            # Add additional statistics
+            additional_stats = {
+                "cache_hit_rate": self._calculate_cache_hit_rate(),
+                "average_query_complexity": self._calculate_average_complexity(),
+                "index_health": self.validate_index_integrity(),
+                "database_connection_status": self._check_database_connection(),
+                "memory_usage": self._get_memory_usage(),
+                "active_connections": self._get_active_connections()
+            }
+            
+            stats.update(additional_stats)
+            return stats
+            
+        except Exception as e:
+            logger.error(f"Failed to get search statistics: {e}")
+            return {"error": f"Statistics collection failed: {e}"}
+
+    def _calculate_cache_hit_rate(self) -> float:
+        """Calculate cache hit rate."""
+        try:
+            if not hasattr(self, '_cache') or not self._cache:
+                return 0.0
+            
+            # This would need to be implemented with proper cache tracking
+            return 0.0  # Placeholder
+        except Exception as e:
+            logger.warning(f"Cache hit rate calculation failed: {e}")
+            return 0.0
+
+    def _calculate_average_complexity(self) -> float:
+        """Calculate average query complexity."""
+        try:
+            # This would need to be implemented with query tracking
+            return 0.5  # Placeholder
+        except Exception as e:
+            logger.warning(f"Average complexity calculation failed: {e}")
+            return 0.5
+
+    def _check_database_connection(self) -> bool:
+        """Check if database connection is healthy."""
+        try:
+            with self.driver.session() as session:
+                session.run("RETURN 1 as test")
+            return True
+        except Exception as e:
+            logger.error(f"Database connection check failed: {e}")
+            return False
+
+    def _get_memory_usage(self) -> Dict[str, Any]:
+        """Get memory usage statistics."""
+        try:
+            import psutil
+            process = psutil.Process()
+            memory_info = process.memory_info()
+            
+            return {
+                "rss_mb": memory_info.rss / 1024 / 1024,
+                "vms_mb": memory_info.vms / 1024 / 1024,
+                "percent": process.memory_percent()
+            }
+        except ImportError:
+            return {"error": "psutil not available"}
+        except Exception as e:
+            logger.warning(f"Memory usage calculation failed: {e}")
+            return {"error": str(e)}
+
+    def _get_active_connections(self) -> int:
+        """Get number of active database connections."""
+        try:
+            # This would need to be implemented based on the specific database driver
+            return 1  # Placeholder
+        except Exception as e:
+            logger.warning(f"Active connections calculation failed: {e}")
+            return 0 
